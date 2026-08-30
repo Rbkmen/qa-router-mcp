@@ -74,7 +74,7 @@ Hermes runs under a dedicated `qa-routine` profile. It provides procedural skill
 
 ### Ollama and Gemma
 
-The initial model is `gemma4:12b-it-q4_K_M`. The operational context starts at 16K to preserve memory headroom for macOS, Codex, IDEs, browsers, Docker, and mobile tooling. A benchmark gate may raise the context to 32K later.
+The initial model is `gemma4:12b-it-q4_K_M`. Hermes 0.20.6 requires at least 64K context for agent operation, so Ollama runs this profile with `num_ctx=64000`, flash attention, a `q8_0` KV cache, and one parallel request. Routine calls explicitly use `reasoning_effort=none`; complex reasoning remains a Codex responsibility.
 
 ## Data handling
 
@@ -169,7 +169,7 @@ The router returns a structured refusal and Codex continues locally when:
 Implementation will be staged:
 
 1. Install and verify Ollama, then download the pinned Gemma model.
-2. Benchmark 16K inference with normal desktop applications open.
+2. Benchmark the Hermes-required 64K inference mode with normal desktop applications open.
 3. Install Hermes and create the isolated `qa-routine` profile.
 4. Implement and test `qa-router-mcp` with a fake model backend first, then Ollama/Hermes.
 5. Add the local STDIO server and routing skill to Codex only after standalone tests pass.
@@ -207,11 +207,23 @@ For each allowed task, compare the local draft with a Codex-reviewed expected st
 With typical work applications open:
 
 - no sustained macOS memory-pressure warning;
-- no material swap growth during a representative 16K request;
+- no material swap growth during a representative 64K request;
 - one local request completes within an agreed interactive latency after measurement;
 - model unload releases enough memory for Docker or mobile tooling.
 
-The 32K context is enabled only if the 16K gate passes with comfortable headroom and a real task demonstrates the need.
+The verified baseline on the target M5 Pro with 24 GB unified memory is:
+
+- Ollama `0.33.0`, Hermes Agent `0.20.6`, and `gemma4:12b-it-q4_K_M`;
+- 64K context on the GPU, with an Ollama-reported loaded size of 7.9-8.2 GB;
+- compressed 64K context memory of approximately 786 MiB in the Ollama runner breakdown;
+- zero swap during direct Ollama and Hermes end-to-end requests;
+- approximately 35-39% system-wide free-memory headroom while the model is loaded;
+- 1.5 seconds for a warm one-title Hermes request;
+- 16.1 seconds for a cold-start Hermes request producing three case drafts.
+
+The first Hermes runs took 58-63 seconds because automatic session-title generation competed with the main request and Gemma generated hundreds of hidden reasoning tokens. The `qa-routine` profile therefore disables auxiliary title generation, and the router must pass `reasoning_effort=none` for routine calls.
+
+The generated case draft also introduced unsupported expected-result details. This validates the requirement that local output is always a draft with explicit unverified fields and is never accepted as final evidence without Codex review.
 
 ## Rollout
 
