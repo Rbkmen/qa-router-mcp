@@ -63,7 +63,7 @@ Initial tools:
 2. `summarize_logs` — group and summarize sanitized log fragments without diagnosing unsupported root causes.
 3. `draft_automation_skeleton` — produce a non-writing automation-test skeleton from a supplied pattern and scenario.
 4. `list_learning_proposals` — list sanitized pending learning proposals without exposing rejected content.
-5. `approve_learning_proposal` — promote one pending proposal and send only its validated reusable text to Hermes.
+5. `approve_learning_proposal` — require an explicit user-confirmation flag, then promote one pending proposal and send only its validated reusable text to Hermes.
 6. `reject_learning_proposal` — remove one pending proposal without sending it to Hermes.
 
 Every draft result contains:
@@ -115,7 +115,7 @@ Transient input is sent directly to Ollama for the current inference, is not sen
 1. Gemma may return an optional `learning_proposal` with a draft response.
 2. The router sanitizes and validates it against forbidden-content rules before storing it in a local pending queue.
 3. Codex shows the proposal to the user when it is materially useful.
-4. Only explicit user approval moves the validated proposal into an approved skill or preference file and permits the router to send that proposal to Hermes.
+4. Only explicit user approval moves the validated proposal into the approved preference store and permits the router to send that proposal to Hermes memory.
 5. Approved entries remain editable and removable, with no silent self-modification.
 
 The first version will not implement autonomous skill rewriting.
