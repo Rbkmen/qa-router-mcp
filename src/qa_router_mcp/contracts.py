@@ -25,9 +25,11 @@ class DraftEnvelope(BaseModel):
 
     @model_validator(mode="after")
     def validate_status_payload(self) -> "DraftEnvelope":
-        if self.status == "ok" and (not self.draft.strip() or not self.unverified):
-            raise ValueError("successful drafts require content and unverified items")
-        if self.status != "ok" and not self.reason:
+        if self.status == "ok":
+            if not self.draft.strip() or not self.unverified:
+                raise ValueError("successful drafts require content and unverified items")
+            self.reason = None
+        elif not self.reason:
             raise ValueError("non-success results require a reason")
         return self
 

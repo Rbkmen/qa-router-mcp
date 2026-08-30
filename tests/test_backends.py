@@ -16,6 +16,7 @@ async def test_ollama_uses_direct_structured_request():
         assert body["model"] == "gemma4:12b-it-q4_K_M"
         assert body["options"]["num_ctx"] == 64_000
         assert body["stream"] is False
+        assert body["think"] is False
         assert body["format"]["title"] == "DraftEnvelope"
         return httpx.Response(
             200,

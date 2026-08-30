@@ -96,4 +96,4 @@ rm /Users/andreiviarshko/.qa-router/disabled
 
 ## Проверенный baseline
 
-На MacBook Pro M5 Pro с 24 GB: Ollama `0.33.0`, Hermes `0.20.6`, Gemma `gemma4:12b-it-q4_K_M`, контекст 64K, flash attention, KV cache `q8_0`, одна параллельная генерация. Во время замеров swap оставался нулевым, свободная память — около 35–39%; warm Hermes-запрос занял 1,5 секунды, cold-запрос с тремя кейсами — 16,1 секунды.
+На MacBook Pro M5 Pro с 24 GB: Ollama `0.33.0`, Hermes `0.20.6`, Gemma `gemma4:12b-it-q4_K_M`, контекст 64K, `think=false`, flash attention, KV cache `q8_0`, одна параллельная генерация. Во время замеров swap оставался нулевым, свободная память — около 35–39%; live structured router draft занял 3,2–3,4 секунды, warm Hermes-запрос — 1,5 секунды, cold Hermes-запрос с тремя кейсами — 16,1 секунды.

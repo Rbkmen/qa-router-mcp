@@ -21,6 +21,16 @@ def test_successful_draft_requires_unverified_items():
         DraftEnvelope(draft="Case A", unverified=[])
 
 
+def test_successful_draft_discards_model_generated_reason():
+    result = DraftEnvelope(
+        draft="Case A",
+        unverified=["Expected result"],
+        reason="generated task content must not reach operational logs",
+    )
+
+    assert result.reason is None
+
+
 def test_learning_proposal_starts_pending():
     proposal = LearningProposal(id="lp_123", text="Use Given/When/Then headings")
 

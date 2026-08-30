@@ -81,7 +81,7 @@ Hermes tool-source sessions are persisted in its SQLite database even when hidde
 
 ### Ollama and Gemma
 
-The initial model is `gemma4:12b-it-q4_K_M`. The router calls Ollama directly for transient drafts, using OpenAI-compatible structured output without an agent session or application-level chat history. Ollama runs with `num_ctx=64000`, flash attention, a `q8_0` KV cache, and one parallel request. Hermes learning calls explicitly use `reasoning_effort=none`; complex reasoning remains a Codex responsibility.
+The initial model is `gemma4:12b-it-q4_K_M`. The router calls Ollama directly for transient drafts, using OpenAI-compatible structured output without an agent session or application-level chat history. Ollama runs with `num_ctx=64000`, `think=false`, flash attention, a `q8_0` KV cache, and one parallel request. Hermes learning calls explicitly use `reasoning_effort=none`; complex reasoning remains a Codex responsibility.
 
 ## Data handling
 
@@ -226,10 +226,13 @@ The verified baseline on the target M5 Pro with 24 GB unified memory is:
 - compressed 64K context memory of approximately 786 MiB in the Ollama runner breakdown;
 - zero swap during direct Ollama and Hermes end-to-end requests;
 - approximately 35-39% system-wide free-memory headroom while the model is loaded;
+- 3.2-3.4 seconds for a live structured router draft with `think=false`;
 - 1.5 seconds for a warm one-title Hermes request;
 - 16.1 seconds for a cold-start Hermes request producing three case drafts.
 
 The first Hermes runs took 58-63 seconds because automatic session-title generation competed with the main request and Gemma generated hundreds of hidden reasoning tokens. The `qa-routine` profile therefore disables auxiliary title generation, and every Hermes learning call must pass `reasoning_effort=none`.
+
+The first direct router smoke also timed out after 45 seconds because the Ollama request omitted `think=false`. With thinking disabled, the same synthetic structured flow completed in 3.2-3.4 seconds. Successful responses also discard any model-generated `reason` value so generated task content cannot enter operational error logs.
 
 The generated case draft also introduced unsupported expected-result details. This validates the requirement that local output is always a draft with explicit unverified fields and is never accepted as final evidence without Codex review.
 

@@ -46,6 +46,7 @@ class OllamaDraftBackend:
             "model": self.settings.model,
             "messages": [{"role": "user", "content": prompt}],
             "format": DraftEnvelope.model_json_schema(),
+            "think": False,
             "stream": False,
             "keep_alive": self.settings.keep_alive,
             "options": {
