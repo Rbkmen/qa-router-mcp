@@ -1,0 +1,32 @@
+[project]
+name = "qa-router-mcp"
+version = "0.1.0"
+description = "Safe local QA drafting and approved Hermes learning for Codex"
+requires-python = ">=3.12"
+dependencies = [
+  "fastmcp>=3.3,<4.0",
+  "httpx>=0.28,<1.0",
+  "pydantic>=2.11,<3.0",
+]
+
+[project.scripts]
+qa-router-mcp = "qa_router_mcp.server:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-asyncio>=0.26,<1.0",
+  "ruff>=0.11,<1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
