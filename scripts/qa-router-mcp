@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+router_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+exec /usr/bin/env -i \
+  HOME=/Users/andreiviarshko \
+  PATH=/Users/andreiviarshko/.local/bin:/opt/homebrew/bin:/usr/bin:/bin \
+  QA_ROUTER_ENABLED=1 \
+  QA_ROUTER_MODEL=gemma4:12b-it-q4_K_M \
+  QA_ROUTER_CONTEXT=64000 \
+  QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
+  QA_ROUTER_HERMES=/Users/andreiviarshko/.local/bin/qa-routine \
+  /opt/homebrew/bin/uv run --frozen --offline --directory "$router_root" qa-router-mcp
