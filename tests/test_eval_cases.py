@@ -38,7 +38,7 @@ def load_cases():
 def test_eval_set_contains_required_policy_and_fallback_categories():
     cases = load_cases()
 
-    assert len(cases) == 9
+    assert len(cases) == 13
     assert {case["expected"] for case in cases} == {"ok", "refused", "fallback"}
     assert {case["name"] for case in cases} == {
         "case_draft",
@@ -46,6 +46,10 @@ def test_eval_set_contains_required_policy_and_fallback_categories():
         "duplicate_case",
         "log_group",
         "wdio_skeleton",
+        "translation",
+        "rewrite",
+        "short_explanation",
+        "text_summary",
         "severity",
         "secret",
         "forbidden_learning",

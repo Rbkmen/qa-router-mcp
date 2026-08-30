@@ -1,7 +1,7 @@
 [project]
 name = "qa-router-mcp"
 version = "0.1.0"
-description = "Safe local QA drafting and approved Hermes learning for Codex"
+description = "Safe local QA and routine text drafting for Codex"
 requires-python = ">=3.12"
 dependencies = [
   "fastmcp>=3.3,<4.0",

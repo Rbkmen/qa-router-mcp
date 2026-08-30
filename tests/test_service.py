@@ -79,6 +79,34 @@ async def test_combined_packet_limit_is_enforced_before_backend(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_qa_draft_without_unverified_falls_back(tmp_path):
+    incomplete = DraftEnvelope(draft="Case", unverified=[])
+    drafting = DraftFake(incomplete)
+    service = RouterService(
+        Settings(data_dir=tmp_path), drafting, LearningFake(), ProposalStore(tmp_path)
+    )
+
+    result = await service.draft(DraftKind.TEST_CASES, "Guest checkout")
+
+    assert result.status == "fallback"
+    assert result.reason == "ollama_invalid_schema"
+
+
+@pytest.mark.asyncio
+async def test_routine_text_draft_without_unverified_succeeds(tmp_path):
+    routine = DraftEnvelope(draft="Translated text", unverified=[])
+    drafting = DraftFake(routine)
+    service = RouterService(
+        Settings(data_dir=tmp_path), drafting, LearningFake(), ProposalStore(tmp_path)
+    )
+
+    result = await service.draft(DraftKind.TRANSLATION, "Translate this")
+
+    assert result.status == "ok"
+    assert result.unverified == []
+
+
+@pytest.mark.asyncio
 async def test_approval_sends_only_stored_validated_text(tmp_path):
     learning = LearningFake()
     store = ProposalStore(tmp_path)

@@ -8,6 +8,10 @@ class DraftKind(StrEnum):
     TEST_CASES = "test_cases"
     LOG_SUMMARY = "log_summary"
     AUTOMATION_SKELETON = "automation_skeleton"
+    TRANSLATION = "translation"
+    REWRITE = "rewrite"
+    SHORT_EXPLANATION = "short_explanation"
+    TEXT_SUMMARY = "text_summary"
 
 
 class ProposalStatus(StrEnum):
@@ -26,8 +30,8 @@ class DraftEnvelope(BaseModel):
     @model_validator(mode="after")
     def validate_status_payload(self) -> "DraftEnvelope":
         if self.status == "ok":
-            if not self.draft.strip() or not self.unverified:
-                raise ValueError("successful drafts require content and unverified items")
+            if not self.draft.strip():
+                raise ValueError("successful drafts require content")
             self.reason = None
         elif not self.reason:
             raise ValueError("non-success results require a reason")

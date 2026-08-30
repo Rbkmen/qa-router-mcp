@@ -13,6 +13,14 @@ from qa_router_mcp.policy import PolicyError, assert_allowed_request, sanitize_t
 from qa_router_mcp.prompts import build_prompt
 from qa_router_mcp.store import ProposalStore
 
+QA_DRAFT_KINDS = frozenset(
+    {
+        DraftKind.TEST_CASES,
+        DraftKind.LOG_SUMMARY,
+        DraftKind.AUTOMATION_SKELETON,
+    }
+)
+
 
 class RouterService:
     def __init__(
@@ -65,6 +73,12 @@ class RouterService:
             result = await self.drafting.generate(
                 build_prompt(kind, safe_content, safe_pattern)
             )
+            if kind in QA_DRAFT_KINDS and not result.unverified:
+                incomplete = DraftEnvelope(
+                    status="fallback",
+                    reason="ollama_invalid_schema",
+                )
+                return self._record(kind, incomplete, started)
             if result.learning_proposal:
                 try:
                     self.store.add(result.learning_proposal)

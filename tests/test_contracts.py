@@ -9,16 +9,23 @@ from qa_router_mcp.contracts import (
 )
 
 
-def test_successful_draft_is_always_unverified():
+def test_successful_qa_shaped_draft_keeps_unverified_items():
     result = DraftEnvelope(draft="Case A", unverified=["Expected result"])
 
     assert result.status == "ok"
     assert result.unverified == ["Expected result"]
 
 
-def test_successful_draft_requires_unverified_items():
+def test_successful_routine_draft_may_have_no_unverified_items():
+    result = DraftEnvelope(draft="Translated text", unverified=[])
+
+    assert result.status == "ok"
+    assert result.unverified == []
+
+
+def test_successful_draft_requires_content():
     with pytest.raises(ValidationError):
-        DraftEnvelope(draft="Case A", unverified=[])
+        DraftEnvelope(draft="", unverified=[])
 
 
 def test_successful_draft_discards_model_generated_reason():

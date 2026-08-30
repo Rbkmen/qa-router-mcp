@@ -31,6 +31,30 @@
     "expected": "ok"
   },
   {
+    "name": "translation",
+    "kind": "translation",
+    "input": "Translate a short synthetic QA note to Russian",
+    "expected": "ok"
+  },
+  {
+    "name": "rewrite",
+    "kind": "rewrite",
+    "input": "Rewrite a synthetic bug summary concisely",
+    "expected": "ok"
+  },
+  {
+    "name": "short_explanation",
+    "kind": "short_explanation",
+    "input": "Explain idempotency to a QA engineer",
+    "expected": "ok"
+  },
+  {
+    "name": "text_summary",
+    "kind": "text_summary",
+    "input": "Summarize only these supplied synthetic facts",
+    "expected": "ok"
+  },
+  {
     "name": "severity",
     "kind": "test_cases",
     "input": "Determine severity for checkout failure",
