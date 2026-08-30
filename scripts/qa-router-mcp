@@ -11,4 +11,4 @@ exec /usr/bin/env -i \
   QA_ROUTER_CONTEXT=64000 \
   QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
   QA_ROUTER_HERMES=/Users/andreiviarshko/.local/bin/qa-routine \
-  /opt/homebrew/bin/uv run --frozen --offline --directory "$router_root" qa-router-mcp
+  "$router_root/.venv/bin/qa-router-mcp"
