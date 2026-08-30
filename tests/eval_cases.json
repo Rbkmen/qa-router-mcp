@@ -1,0 +1,59 @@
+[
+  {
+    "name": "case_draft",
+    "kind": "test_cases",
+    "input": "Guest can submit checkout",
+    "expected": "ok"
+  },
+  {
+    "name": "checklist",
+    "kind": "test_cases",
+    "input": "Normalize a three-item smoke checklist",
+    "expected": "ok"
+  },
+  {
+    "name": "duplicate_case",
+    "kind": "test_cases",
+    "input": "Find duplicate wording in two synthetic cases",
+    "expected": "ok"
+  },
+  {
+    "name": "log_group",
+    "kind": "log_summary",
+    "input": "ERROR timeout\nERROR timeout\nWARN retry",
+    "expected": "ok"
+  },
+  {
+    "name": "wdio_skeleton",
+    "kind": "automation_skeleton",
+    "input": "Verify login redirect",
+    "pattern": "describe/it page-object pattern",
+    "expected": "ok"
+  },
+  {
+    "name": "severity",
+    "kind": "test_cases",
+    "input": "Determine severity for checkout failure",
+    "expected": "refused"
+  },
+  {
+    "name": "secret",
+    "kind": "log_summary",
+    "input": "Authorization: Bearer secret-value",
+    "expected": "refused"
+  },
+  {
+    "name": "forbidden_learning",
+    "kind": "test_cases",
+    "input": "Draft concise generic cases",
+    "expected": "ok",
+    "proposal": "Remember ABC-123"
+  },
+  {
+    "name": "outage",
+    "kind": "test_cases",
+    "input": "Guest checkout",
+    "expected": "fallback",
+    "backend_error": "ollama_invalid_response"
+  }
+]

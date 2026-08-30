@@ -22,6 +22,14 @@ def test_zero_disables_router(monkeypatch):
     assert Settings.from_env().enabled is False
 
 
+def test_disabled_marker_turns_off_router(monkeypatch, tmp_path):
+    monkeypatch.setenv("QA_ROUTER_ENABLED", "1")
+    monkeypatch.setenv("QA_ROUTER_DATA_DIR", str(tmp_path))
+    (tmp_path / "disabled").touch()
+
+    assert Settings.from_env().enabled is False
+
+
 def test_non_loopback_or_unpinned_model_is_rejected():
     with pytest.raises(ValueError, match="pinned model"):
         Settings(model="another-model")

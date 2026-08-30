@@ -28,8 +28,12 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         defaults = cls()
+        data_dir = Path(environ.get("QA_ROUTER_DATA_DIR", str(defaults.data_dir)))
         return cls(
-            enabled=environ.get("QA_ROUTER_ENABLED", "1") == "1",
+            enabled=(
+                environ.get("QA_ROUTER_ENABLED", "1") == "1"
+                and not (data_dir / "disabled").exists()
+            ),
             model=environ.get("QA_ROUTER_MODEL", defaults.model),
             ollama_url=environ.get("QA_ROUTER_OLLAMA_URL", defaults.ollama_url),
             context=int(environ.get("QA_ROUTER_CONTEXT", str(defaults.context))),
@@ -44,7 +48,7 @@ class Settings:
             ),
             max_parallel=1,
             keep_alive=environ.get("QA_ROUTER_KEEP_ALIVE", defaults.keep_alive),
-            data_dir=Path(environ.get("QA_ROUTER_DATA_DIR", str(defaults.data_dir))),
+            data_dir=data_dir,
             hermes_command=Path(
                 environ.get("QA_ROUTER_HERMES", str(defaults.hermes_command))
             ),
