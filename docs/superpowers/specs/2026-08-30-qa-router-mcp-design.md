@@ -62,13 +62,16 @@ Initial tools:
 1. `draft_test_cases` — produce a structured draft from a sanitized requirement and approved examples.
 2. `summarize_logs` — group and summarize sanitized log fragments without diagnosing unsupported root causes.
 3. `draft_automation_skeleton` — produce a non-writing automation-test skeleton from a supplied pattern and scenario.
+4. `list_learning_proposals` — list sanitized pending learning proposals without exposing rejected content.
+5. `approve_learning_proposal` — promote one pending proposal and send only its validated reusable text to Hermes.
+6. `reject_learning_proposal` — remove one pending proposal without sending it to Hermes.
 
 Every draft result contains:
 
 - `draft` — generated content;
 - `assumptions` — assumptions made by the local model;
 - `unverified` — items that require Codex verification;
-- `learning_proposal` — optional reusable procedure or preference, never sent to Hermes or persisted automatically.
+- `learning_proposal` — optional reusable procedure or preference; a sanitized copy may enter the pending queue, but it is never sent to Hermes or promoted to approved memory automatically.
 
 ### Hermes Agent
 
