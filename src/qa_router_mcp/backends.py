@@ -2,6 +2,7 @@ import asyncio
 from typing import Protocol
 
 import httpx
+from pydantic import ValidationError
 
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope
@@ -28,8 +29,20 @@ class OllamaDraftBackend:
         self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
         self._gate = asyncio.Semaphore(1)
 
+    async def _request(self, payload: dict[str, object]) -> str:
+        try:
+            async with self._gate:
+                response = await self.client.post(
+                    f"{self.settings.ollama_url}/api/chat",
+                    json=payload,
+                )
+                response.raise_for_status()
+            return response.json()["message"]["content"]
+        except (httpx.HTTPError, KeyError, TypeError) as exc:
+            raise BackendError("ollama_invalid_response") from exc
+
     async def generate(self, prompt: str) -> DraftEnvelope:
-        payload = {
+        payload: dict[str, object] = {
             "model": self.settings.model,
             "messages": [{"role": "user", "content": prompt}],
             "format": DraftEnvelope.model_json_schema(),
@@ -41,15 +54,25 @@ class OllamaDraftBackend:
                 "temperature": 0.1,
             },
         }
-        try:
-            async with self._gate:
-                response = await self.client.post(
-                    f"{self.settings.ollama_url}/api/chat", json=payload
+        for attempt in range(2):
+            content = await self._request(payload)
+            try:
+                return DraftEnvelope.model_validate_json(content)
+            except ValidationError as exc:
+                if attempt == 1:
+                    raise BackendError("ollama_invalid_schema") from exc
+                messages = payload["messages"]
+                assert isinstance(messages, list)
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Return valid JSON only. Keep every unsupported statement "
+                            "in unverified."
+                        ),
+                    }
                 )
-                response.raise_for_status()
-            return DraftEnvelope.model_validate_json(response.json()["message"]["content"])
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-            raise BackendError("ollama_invalid_response") from exc
+        raise BackendError("ollama_invalid_schema")
 
 
 class HermesLearningBackend:

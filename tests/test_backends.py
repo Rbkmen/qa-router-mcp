@@ -68,3 +68,22 @@ async def test_hermes_rejects_corporate_artifact_before_subprocess(tmp_path):
 
     with pytest.raises(PolicyError, match="learning_content_forbidden"):
         await HermesLearningBackend(settings).apply("Remember ABC-123")
+
+
+@pytest.mark.asyncio
+async def test_invalid_schema_is_repaired_once():
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        content = "not-json" if calls == 1 else '{"draft":"A","unverified":["A"]}'
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = await OllamaDraftBackend(Settings(), client).generate("prompt")
+
+    assert result.draft == "A"
+    assert calls == 2
+    await client.aclose()
