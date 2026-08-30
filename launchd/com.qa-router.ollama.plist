@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.qa-router.ollama</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/ollama</string>
+    <string>serve</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/andreiviarshko</string>
+    <key>PATH</key>
+    <string>/Users/andreiviarshko/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>OLLAMA_HOST</key>
+    <string>127.0.0.1:11434</string>
+    <key>OLLAMA_CONTEXT_LENGTH</key>
+    <string>64000</string>
+    <key>OLLAMA_FLASH_ATTENTION</key>
+    <string>1</string>
+    <key>OLLAMA_KV_CACHE_TYPE</key>
+    <string>q8_0</string>
+    <key>OLLAMA_NUM_PARALLEL</key>
+    <string>1</string>
+    <key>OLLAMA_MAX_LOADED_MODELS</key>
+    <string>1</string>
+    <key>OLLAMA_KEEP_ALIVE</key>
+    <string>5m</string>
+    <key>OLLAMA_NO_CLOUD</key>
+    <string>true</string>
+    <key>OLLAMA_NOHISTORY</key>
+    <string>true</string>
+    <key>OLLAMA_DEBUG_LOG_REQUESTS</key>
+    <string>false</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andreiviarshko/Library/Logs/qa-router-ollama.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andreiviarshko/Library/Logs/qa-router-ollama-error.log</string>
+</dict>
+</plist>

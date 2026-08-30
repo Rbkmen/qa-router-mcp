@@ -47,6 +47,32 @@ OLLAMA_NUM_PARALLEL=1 \
 /opt/homebrew/bin/ollama serve
 ```
 
+Для автоматического запуска при входе в macOS используется локальный LaunchAgent:
+
+```bash
+mkdir -p /Users/andreiviarshko/Library/LaunchAgents \
+  /Users/andreiviarshko/Library/Logs
+cp launchd/com.qa-router.ollama.plist \
+  /Users/andreiviarshko/Library/LaunchAgents/com.qa-router.ollama.plist
+launchctl bootstrap gui/$(id -u) \
+  /Users/andreiviarshko/Library/LaunchAgents/com.qa-router.ollama.plist
+```
+
+Проверка состояния:
+
+```bash
+launchctl print gui/$(id -u)/com.qa-router.ollama
+curl http://127.0.0.1:11434/api/version
+```
+
+Перезапуск после изменения plist:
+
+```bash
+launchctl bootout gui/$(id -u)/com.qa-router.ollama
+launchctl bootstrap gui/$(id -u) \
+  /Users/andreiviarshko/Library/LaunchAgents/com.qa-router.ollama.plist
+```
+
 ## Codex Desktop
 
 Скопировать routing skill:
@@ -88,9 +114,11 @@ rm /Users/andreiviarshko/.qa-router/disabled
 
 ## Удаление интеграции
 
-1. Удалить блок `[mcp_servers.qa-router]` из Codex config.
-2. Удалить каталог `/Users/andreiviarshko/.codex/skills/qa-local-routing`.
-3. Перезапустить Codex Desktop.
+1. Выполнить `launchctl bootout gui/$(id -u)/com.qa-router.ollama`.
+2. Удалить `/Users/andreiviarshko/Library/LaunchAgents/com.qa-router.ollama.plist`.
+3. Удалить блок `[mcp_servers.qa-router]` из Codex config.
+4. Удалить каталог `/Users/andreiviarshko/.codex/skills/qa-local-routing`.
+5. Перезапустить Codex Desktop.
 
 Репозиторий и `/Users/andreiviarshko/.qa-router` остаются локально для ручной проверки. Проект не требует push, GitLab, GitHub или публикации.
 
