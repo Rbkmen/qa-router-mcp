@@ -26,7 +26,10 @@ async def test_synthetic_draft_and_secret_refusal_against_live_ollama(tmp_path):
 
     draft = await service.draft(
         DraftKind.TEST_CASES,
-        "Guest checkout supports a synthetic expired-card validation example",
+        (
+            "Synthetic demo: a guest checkout form accepts a valid card and shows a "
+            "validation error for an expired card. Draft three focused test cases."
+        ),
     )
     refusal = await service.draft(
         DraftKind.LOG_SUMMARY,
@@ -34,7 +37,9 @@ async def test_synthetic_draft_and_secret_refusal_against_live_ollama(tmp_path):
     )
 
     assert draft.status == "ok"
-    assert draft.draft.strip()
+    assert draft.draft.count("Title:") >= 3
+    assert "Steps:" in draft.draft
+    assert "Expected Result:" in draft.draft
     assert draft.unverified
     assert refusal.status == "refused"
     assert refusal.reason == "secret_detected"
