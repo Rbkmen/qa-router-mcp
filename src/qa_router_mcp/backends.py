@@ -42,10 +42,12 @@ class OllamaDraftBackend:
             raise BackendError("ollama_invalid_response") from exc
 
     async def generate(self, prompt: str) -> DraftEnvelope:
+        response_schema = DraftEnvelope.model_json_schema()
+        response_schema["required"] = ["draft", "unverified"]
         payload: dict[str, object] = {
             "model": self.settings.model,
             "messages": [{"role": "user", "content": prompt}],
-            "format": DraftEnvelope.model_json_schema(),
+            "format": response_schema,
             "think": False,
             "stream": False,
             "keep_alive": self.settings.keep_alive,

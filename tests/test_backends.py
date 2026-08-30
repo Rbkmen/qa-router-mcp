@@ -18,6 +18,7 @@ async def test_ollama_uses_direct_structured_request():
         assert body["stream"] is False
         assert body["think"] is False
         assert body["format"]["title"] == "DraftEnvelope"
+        assert {"draft", "unverified"} <= set(body["format"].get("required", []))
         return httpx.Response(
             200,
             json={"message": {"content": '{"draft":"A","unverified":["A"]}'}},
