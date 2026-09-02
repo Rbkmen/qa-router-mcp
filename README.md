@@ -1,6 +1,6 @@
 # QA Router MCP
 
-Локальный STDIO MCP-сервер для Codex Desktop. Qwen или Gemma создают только
+Локальный STDIO MCP-сервер для Codex Desktop. Qwen создаёт только
 ограниченные черновики QA-артефактов и безопасных текстовых задач. Codex остаётся
 единственным оркестратором и принимает финальные решения.
 
@@ -8,8 +8,6 @@
 
 - Основной чат: `gpt-5.6-terra` с `medium` reasoning.
 - Локальная рутина: `qwen/qwen3.5-9b` через loopback LM Studio/llmster и MLX.
-- Резервная локальная модель: `google/gemma-4-12b` в MLX 4-bit; переключается
-  переменной `QA_ROUTER_MODEL`, а не запускается одновременно с Qwen.
 - Сложный анализ: один read-only `qa_deep` на `gpt-5.6-sol` с `high` reasoning.
 - Router не обучает модель, не ведёт application-level историю и не создаёт постоянную QA-память.
 - Jira, GitLab, TestRail, Sentry, Grafana и OpenSearch остаются за Codex и соответствующими MCP.
@@ -19,6 +17,11 @@
 - Router отклоняет секреты и заменяет Jira-ключи, URL, email, commit hash, branch и локальные пути.
 - Входные и выходные бюджеты задаются отдельно для каждого инструмента; общий
   верхний предел входа — 40 000 символов.
+- После sanitization router считает полный prompt точным tokenizer выбранной модели
+  через локальный LM Studio. Запрос
+  уходит в модель, только если prompt + выходной бюджет + резерв 512 tokens
+  укладываются в проверенный контекст 16K; иначе возвращается
+  `token_budget_exceeded` без вызова backend.
 - Логи содержат только время, имя инструмента, маршрут, результат, длительность,
   счётчики токенов/запросов и категорию ошибки. Текст запросов и ответов не пишется.
 - Нельзя передавать credentials, cookies, tokens, персональные или платёжные данные, полные репозитории и неограниченные корпоративные документы.
@@ -34,14 +37,26 @@
 - `explain_short` — краткое объяснение стабильной темы без внешнего исследования.
 - `summarize_text` — выжимка только из переданного текста.
 
-| Инструмент | Вход, символов | Выход, tokens |
+| Инструмент | Вход, символов | Максимальный выход, tokens |
 |---|---:|---:|
-| `draft_test_cases` | 20 000 | 2 048 |
-| `summarize_logs` | 40 000 | 1 024 |
-| `draft_automation_skeleton` | 20 000 | 2 048 |
-| `translate_text` / `rewrite_text` | 12 000 | 1 024 |
-| `explain_short` | 6 000 | 384 |
-| `summarize_text` | 24 000 | 1 024 |
+| `draft_test_cases` | 20 000 | 3 072 |
+| `summarize_logs` | 40 000 | 1 536 |
+| `draft_automation_skeleton` | 20 000 | 3 072 |
+| `translate_text` / `rewrite_text` | 12 000 | 1 536 |
+| `explain_short` | 6 000 | 512 |
+| `summarize_text` | 24 000 | 2 048 |
+
+Router v5 выбирает фактический выходной бюджет ниже этого потолка:
+
+- тест-кейсы: 1–3 — 1 024, 4–6 — 2 048, 7–12 — 3 072 tokens;
+- automation skeleton: до 6 000 символов — 1 536, больше — 3 072;
+- summary: до 6 000 символов — 768, больше — 2 048;
+- логи: до 8 000 символов — 768, до 24 000 — 1 024, больше — 1 536;
+- перевод и rewrite: до 1 000 символов — 512, до 6 000 — 1 024,
+  больше — 1 536;
+- короткое объяснение — 512 tokens.
+
+Глобальный `QA_ROUTER_MAX_OUTPUT` остаётся последним верхним ограничителем.
 
 ## Локальная установка
 
@@ -67,7 +82,6 @@ lms ls
 ```
 
 - `qwen/qwen3.5-9b` — основной маршрут.
-- `google/gemma-4-12b` — резерв и контрольная модель.
 
 Проверенный профиль:
 
@@ -119,7 +133,9 @@ tool_timeout_sec = 120
 
 ## Fallback
 
-`local_delegation_disabled`, `local_model_invalid_response`,
+`local_delegation_disabled`, `token_budget_exceeded`, `local_tokenizer_error`,
+`requested_case_count_too_large`,
+`local_model_invalid_response`,
 `local_model_invalid_schema`, `local_model_invalid_draft`, `local_model_truncated`
 и `local_model_transport_error` возвращают
 управление Codex.
@@ -128,7 +144,8 @@ tool_timeout_sec = 120
 - Для невалидного JSON допускается одна schema-repair попытка.
 - Для неполного QA-черновика допускается одна semantic-repair попытка.
 - `draft_test_cases` проверяет число кейсов и наличие Title, Preconditions, Steps и
-  Expected Result у каждого кейса.
+  Expected Result у каждого кейса. Запросы свыше 12 кейсов возвращаются Codex для
+  разбиения на меньшие пакеты.
 - `explain_short` проверяется на лимит 120 слов, а automation skeleton — на отсутствие
   явных внешних записей.
 
@@ -142,8 +159,12 @@ cd /Users/andreiviarshko/Projects/qa-router-mcp
 .venv/bin/qa-router-report
 ```
 
-Отчёт показывает локальные prompt/output tokens, количество запросов, repair,
-truncation и fallback по инструментам. Он не содержит текст и не является QA-памятью.
+События Router v5 помечаются моделью, версией профиля и источником
+`interactive`, `benchmark` или `smoke`. Отчёт показывает отдельно для каждого
+источника, модели и профиля: outcomes, оценку входного бюджета, фактические
+prompt/output tokens, число запросов и p50/p95 длительности. Старые события
+остаются читаемыми в группе `legacy`; текст запросов и ответов не сохраняется.
+Отчёт не является QA-памятью.
 Токены Terra/Sol router измерить не может, поэтому экономию нужно оценивать сравнением
 одинаковых задач в Codex.
 
@@ -151,16 +172,16 @@ Regression corpus содержит четыре synthetic sanitized пример
 инструментов, а также отдельные policy/fallback проверки. Он запускается вместе с
 `pytest` после изменения модели, prompt или routing-кода.
 
-Полный opt-in прогон всех 28 примеров через выбранную реальную модель:
+Полный opt-in прогон всех 28 примеров через Qwen:
 
 ```bash
 QA_ROUTER_BENCHMARK=1 uv run pytest -q tests/test_live_benchmark.py -s
 ```
 
-Для контрольного прогона Gemma:
+Чтобы сохранить benchmark рядом с interactive-метриками для сравнения в отчёте:
 
 ```bash
-QA_ROUTER_MODEL=google/gemma-4-12b \
+QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
 QA_ROUTER_BENCHMARK=1 \
 uv run pytest -q tests/test_live_benchmark.py -s
 ```
@@ -204,25 +225,14 @@ fallback-контракт и отсутствие постоянной памя�
 
 Проверенный Qwen baseline 2026-09-02:
 
-- 28/28 основных сценариев за 53,11 секунды;
-- 3/3 расширенных сценария за 27,33 секунды: восемь тест-кейсов, 30 525 символов
+- 28/28 основных сценариев за 58,46 секунды на прогретой модели;
+- 3/3 расширенных сценария за 30,25 секунды: восемь тест-кейсов, 30 525 символов
   логов и 17 420 символов source-bound summary;
+- 20 000 символов плотного synthetic ASCII корректно отклонены до генерации:
+  exact prompt count 14 992 tokens, backend requests — 0;
 - холодная загрузка после установки runtime — 7,64 секунды, размер загруженной
   модели — 5,57 GiB;
 - все 31 генерация прошла без repair, fallback и truncation.
-
-Сравнение на одном MLX runtime и одинаковом основном corpus:
-
-| Модель | Основной corpus | Время | Размер в памяти | Холодная загрузка |
-|---|---:|---:|---:|---:|
-| `qwen/qwen3.5-9b` | 28/28 | 53,11 с | 5,57 GiB | 7,64 с |
-| `google/gemma-4-12b` | 28/28 | 70,26 с | 6,31 GiB | 7,89 с |
-
-Qwen выполнила основной corpus на 24,4% быстрее и занимает примерно на 0,74 GiB
-меньше памяти. На расширенном corpus Qwen прошла 3/3, а Gemma — 2/3: длинный
-source-bound summary исчерпал выходной бюджет при повторной попытке и корректно
-вернулся в Codex через fallback. Поэтому Qwen используется по умолчанию, а Gemma
-сохраняется как ручная контрольная модель, но не как автоматический fallback backend.
 
 Качественный synthetic spot-check подтверждает ту же границу: Qwen лучше отмечает
 неподтверждённые допущения, группирует повторяющиеся log signatures и сохраняет смысл

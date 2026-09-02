@@ -11,11 +11,7 @@ from qa_router_mcp.contracts import DraftKind
 from qa_router_mcp.service import RouterService
 
 CASES_PATH = Path(__file__).parent / "eval_cases.json"
-OK_CASES = [
-    case
-    for case in json.loads(CASES_PATH.read_text())
-    if case["expected"] == "ok"
-]
+OK_CASES = [case for case in json.loads(CASES_PATH.read_text()) if case["expected"] == "ok"]
 
 
 @pytest.mark.skipif(
@@ -25,7 +21,8 @@ OK_CASES = [
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", OK_CASES, ids=lambda case: case["name"])
 async def test_live_synthetic_benchmark_case(case, tmp_path):
-    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    data_dir = Path(os.environ.get("QA_ROUTER_DATA_DIR", tmp_path))
+    settings = replace(Settings.from_env(), data_dir=data_dir, metrics_source="benchmark")
     backend = LMStudioDraftBackend(settings)
     service = RouterService(settings, backend)
 
@@ -39,3 +36,4 @@ async def test_live_synthetic_benchmark_case(case, tmp_path):
         await backend.client.aclose()
 
     assert result.status == "ok", result.reason
+    assert '"source":"benchmark"' in settings.metrics_path.read_text()

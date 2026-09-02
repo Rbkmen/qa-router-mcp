@@ -35,9 +35,7 @@ def test_successful_draft_discards_model_generated_reason():
 
 def test_generation_stats_are_runtime_only():
     result = DraftEnvelope(draft="Case A", unverified=["Review"])
-    result.set_generation_stats(
-        GenerationStats(prompt_tokens=20, output_tokens=10, requests=1)
-    )
+    result.set_generation_stats(GenerationStats(prompt_tokens=20, output_tokens=10, requests=1))
 
     assert result.generation_stats.output_tokens == 10
     assert "generation_stats" not in result.model_dump()

@@ -1,6 +1,6 @@
 import pytest
 
-from qa_router_mcp.config import Settings
+from qa_router_mcp.config import PINNED_MODELS, Settings
 from qa_router_mcp.contracts import DraftKind
 
 
@@ -16,11 +16,45 @@ def test_settings_use_pinned_safe_defaults(monkeypatch):
     assert settings.ttl_seconds == 300
     assert settings.timeout_seconds == 90
     assert settings.max_input_chars == 40_000
+    assert settings.max_output_tokens == 3_072
     assert settings.max_parallel == 1
+    assert settings.context_reserve_tokens == 512
+    assert settings.metrics_source == "interactive"
+    assert settings.profile_version == "router-v5"
     assert settings.input_limit(DraftKind.SHORT_EXPLANATION) == 6_000
-    assert settings.output_limit(DraftKind.SHORT_EXPLANATION) == 384
     assert settings.input_limit(DraftKind.LOG_SUMMARY) == 40_000
-    assert settings.output_limit(DraftKind.TEST_CASES) == 2_048
+
+
+@pytest.mark.parametrize(
+    ("kind", "content", "expected"),
+    [
+        (DraftKind.TEST_CASES, "Draft 3 test cases", 1_024),
+        (DraftKind.TEST_CASES, "Draft 6 test cases", 2_048),
+        (DraftKind.TEST_CASES, "Draft 12 test cases", 3_072),
+        (DraftKind.AUTOMATION_SKELETON, "x" * 1_000, 1_536),
+        (DraftKind.AUTOMATION_SKELETON, "x" * 7_000, 3_072),
+        (DraftKind.TEXT_SUMMARY, "x" * 1_000, 768),
+        (DraftKind.TEXT_SUMMARY, "x" * 7_000, 2_048),
+        (DraftKind.LOG_SUMMARY, "x" * 1_000, 768),
+        (DraftKind.LOG_SUMMARY, "x" * 10_000, 1_024),
+        (DraftKind.LOG_SUMMARY, "x" * 30_000, 1_536),
+        (DraftKind.TRANSLATION, "x" * 500, 512),
+        (DraftKind.TRANSLATION, "x" * 2_000, 1_024),
+        (DraftKind.TRANSLATION, "x" * 8_000, 1_536),
+        (DraftKind.REWRITE, "x" * 500, 512),
+        (DraftKind.SHORT_EXPLANATION, "x" * 1_000, 512),
+    ],
+)
+def test_settings_apply_adaptive_output_budgets(kind, content, expected):
+    settings = Settings()
+
+    assert settings.output_limit(kind, content) == expected
+
+
+def test_adaptive_output_budget_respects_global_cap():
+    settings = Settings(max_output_tokens=700)
+
+    assert settings.output_limit(DraftKind.LOG_SUMMARY, "x" * 30_000) == 700
 
 
 def test_zero_disables_router(monkeypatch):
@@ -37,8 +71,40 @@ def test_disabled_marker_turns_off_router(monkeypatch, tmp_path):
     assert Settings.from_env().enabled is False
 
 
-def test_non_loopback_or_unpinned_model_is_rejected():
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://remote.example.test",
+        "https://127.0.0.1:1234",
+        "http://localhost:1234@evil.example:80",
+        "http://user:password@127.0.0.1:1234",
+        "http://127.0.0.1",
+        "http://localhost:not-a-port",
+        "http://127.0.0.1:1234/path",
+        "http://127.0.0.1:1234?",
+        "http://127.0.0.1:1234?target=remote",
+        "http://127.0.0.1:1234#",
+    ],
+)
+def test_non_loopback_or_ambiguous_lmstudio_url_is_rejected(url):
+    with pytest.raises(ValueError, match="loopback"):
+        Settings(lmstudio_url=url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:1234", "http://localhost:1234"],
+)
+def test_explicit_loopback_lmstudio_url_is_allowed(url):
+    assert Settings(lmstudio_url=url).lmstudio_url == url
+
+
+def test_unpinned_model_or_unknown_metrics_source_is_rejected():
     with pytest.raises(ValueError, match="pinned model"):
         Settings(model="another-model")
-    with pytest.raises(ValueError, match="loopback"):
-        Settings(lmstudio_url="https://remote.example.test")
+    with pytest.raises(ValueError, match="metrics source"):
+        Settings(metrics_source="unknown")
+
+
+def test_qwen_is_the_only_allowed_local_model():
+    assert PINNED_MODELS == {"qwen/qwen3.5-9b"}

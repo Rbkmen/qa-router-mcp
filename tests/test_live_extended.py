@@ -1,5 +1,6 @@
 import os
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,8 @@ from qa_router_mcp.service import RouterService
 
 @pytest.fixture
 async def live_service(tmp_path):
-    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    data_dir = Path(os.environ.get("QA_ROUTER_DATA_DIR", tmp_path))
+    settings = replace(Settings.from_env(), data_dir=data_dir, metrics_source="benchmark")
     backend = LMStudioDraftBackend(settings)
     try:
         yield RouterService(settings, backend)

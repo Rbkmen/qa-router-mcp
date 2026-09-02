@@ -11,9 +11,7 @@ from qa_router_mcp.policy import (
 def test_transient_identifiers_are_replaced():
     raw = "ABC-123 at https://stage.example.test by qa@example.test commit deadbee"
 
-    assert sanitize_transient(raw, 1_000) == (
-        "[ISSUE] at [URL] by [EMAIL] commit [COMMIT]"
-    )
+    assert sanitize_transient(raw, 1_000) == ("[ISSUE] at [URL] by [EMAIL] commit [COMMIT]")
 
 
 def test_branch_and_repository_paths_are_replaced():

@@ -3,12 +3,8 @@ import re
 from qa_router_mcp.contracts import DraftEnvelope, DraftKind
 
 FIELD_PATTERNS = {
-    "title": re.compile(
-        r"(?im)^\s*(?:[-*#]+\s*)?(?:title|заголовок|название)\s*[:—-]"
-    ),
-    "preconditions": re.compile(
-        r"(?im)^\s*(?:[-*#]+\s*)?(?:preconditions?|предусловия)\s*[:—-]"
-    ),
+    "title": re.compile(r"(?im)^\s*(?:[-*#]+\s*)?(?:title|заголовок|название)\s*[:—-]"),
+    "preconditions": re.compile(r"(?im)^\s*(?:[-*#]+\s*)?(?:preconditions?|предусловия)\s*[:—-]"),
     "steps": re.compile(r"(?im)^\s*(?:[-*#]+\s*)?(?:steps?|шаги)\s*[:—-]"),
     "expected_result": re.compile(
         r"(?im)^\s*(?:[-*#]+\s*)?(?:expected result|ожидаемый результат)\s*[:—-]"
@@ -28,6 +24,16 @@ COUNT_WORDS = {
     "eight": 8,
     "nine": 9,
     "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
     "два": 2,
     "две": 2,
     "три": 3,
@@ -38,6 +44,16 @@ COUNT_WORDS = {
     "восемь": 8,
     "девять": 9,
     "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+    "девятнадцать": 19,
+    "двадцать": 20,
 }
 EXTERNAL_WRITE = re.compile(
     r"(?i)\b(?:git\s+(?:commit|push)|commit\s*=\s*true|jira_add_comment|"
@@ -60,9 +76,7 @@ def validate_generated_draft(
         expected = requested_case_count(request_text)
         title_fields = list(FIELD_PATTERNS["title"].finditer(result.draft))
         case_headings = list(CASE_HEADING.finditer(result.draft))
-        title_matches = (
-            title_fields if len(title_fields) >= len(case_headings) else case_headings
-        )
+        title_matches = title_fields if len(title_fields) >= len(case_headings) else case_headings
         if len(title_matches) < expected:
             issues.append("test_cases_missing_title")
         if title_matches:
@@ -79,9 +93,7 @@ def validate_generated_draft(
                     issues.append(f"test_cases_missing_{field}")
         else:
             issues.extend(
-                f"test_cases_missing_{field}"
-                for field in FIELD_PATTERNS
-                if field != "title"
+                f"test_cases_missing_{field}" for field in FIELD_PATTERNS if field != "title"
             )
     elif kind == DraftKind.SHORT_EXPLANATION and len(result.draft.split()) > 120:
         issues.append("short_explanation_too_long")
@@ -99,7 +111,7 @@ def requested_case_count(text: str) -> int:
         r"сценар(?:ия|иев)|пункт(?:а|ов)?)\b"
     )
     numeric = re.search(
-        rf"(?i)\b([2-9]|10){separator}{descriptors}{case_noun}",
+        rf"(?i)\b([1-9]\d*){separator}{descriptors}{case_noun}",
         text,
     )
     if numeric:
@@ -120,9 +132,7 @@ def repair_instruction(issues: list[str]) -> str:
         ),
         "test_cases_missing_preconditions": "include Preconditions in every test case",
         "test_cases_missing_steps": "include Steps in every test case",
-        "test_cases_missing_expected_result": (
-            "include Expected Result in every test case"
-        ),
+        "test_cases_missing_expected_result": ("include Expected Result in every test case"),
         "short_explanation_too_long": "keep the explanation at or below 120 words",
         "automation_external_write": "remove every external write operation",
     }

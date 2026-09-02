@@ -1,6 +1,7 @@
 import re
 
 from qa_router_mcp.contracts import DraftKind
+from qa_router_mcp.validation import requested_case_count
 
 
 class PolicyError(ValueError):
@@ -32,6 +33,7 @@ REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"\b(?:src|tests?|packages?|apps?|lib)/[\w./-]+\b", re.IGNORECASE), "[PATH]"),
 )
+MAX_LOCAL_TEST_CASES = 12
 
 
 def sanitize_transient(text: str, limit: int) -> str:
@@ -46,6 +48,7 @@ def sanitize_transient(text: str, limit: int) -> str:
 
 
 def assert_allowed_request(kind: DraftKind, text: str) -> None:
-    del kind
     if DECISION.search(text):
         raise PolicyError("codex_only_decision")
+    if kind == DraftKind.TEST_CASES and requested_case_count(text) > MAX_LOCAL_TEST_CASES:
+        raise PolicyError("requested_case_count_too_large")

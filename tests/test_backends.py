@@ -1,8 +1,59 @@
 import httpx
 import pytest
 
+import qa_router_mcp.backends as backends_module
 from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
+
+
+@pytest.mark.asyncio
+async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
+    calls = {}
+
+    class FakeChat:
+        @classmethod
+        def from_history(cls, history):
+            calls["history"] = history
+            return "chat"
+
+    class FakeModel:
+        def apply_prompt_template(self, chat):
+            calls["chat"] = chat
+            return "formatted prompt"
+
+        def tokenize(self, text):
+            calls["text"] = text
+            return list(range(321))
+
+    monkeypatch.setattr(backends_module.lms, "Chat", FakeChat)
+
+    class FakeLlmNamespace:
+        def model(self, model, *, ttl):
+            calls.update(model=model, ttl=ttl)
+            return FakeModel()
+
+    class FakeClient:
+        llm = FakeLlmNamespace()
+
+    monkeypatch.setattr(
+        backends_module,
+        "_lmstudio_client",
+        lambda api_host: calls.update(api_host=api_host) or FakeClient(),
+    )
+
+    backend = LMStudioDraftBackend(Settings())
+    token_count = await backend.count_tokens("source prompt")
+
+    assert token_count == 321
+    assert calls == {
+        "model": "qwen/qwen3.5-9b",
+        "ttl": 300,
+        "api_host": "127.0.0.1:1234",
+        "history": {"messages": [{"role": "user", "content": "source prompt"}]},
+        "chat": "chat",
+        "text": "formatted prompt",
+    }
+    await backend.client.aclose()
 
 
 @pytest.mark.asyncio
@@ -26,9 +77,7 @@ async def test_lmstudio_uses_direct_structured_request():
             json={
                 "choices": [
                     {
-                        "message": {
-                            "content": '{"draft":"A","unverified":["A"]}'
-                        },
+                        "message": {"content": '{"draft":"A","unverified":["A"]}'},
                         "finish_reason": "stop",
                     }
                 ],
@@ -61,9 +110,7 @@ async def test_lmstudio_accepts_structured_json_from_reasoning_channel():
                     {
                         "message": {
                             "content": "",
-                            "reasoning_content": (
-                                '{"draft":"A","unverified":["A"]}'
-                            ),
+                            "reasoning_content": ('{"draft":"A","unverified":["A"]}'),
                         },
                         "finish_reason": "stop",
                     }
@@ -112,9 +159,7 @@ async def test_length_stop_is_exposed_as_truncation():
             json={
                 "choices": [
                     {
-                        "message": {
-                            "content": '{"draft":"A","unverified":["A"]}'
-                        },
+                        "message": {"content": '{"draft":"A","unverified":["A"]}'},
                         "finish_reason": "length",
                     }
                 ],
@@ -141,11 +186,7 @@ async def test_transport_error_is_retried_once():
             raise httpx.ConnectError("temporary", request=request)
         return httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"message": {"content": '{"draft":"A","unverified":["A"]}'}}
-                ]
-            },
+            json={"choices": [{"message": {"content": '{"draft":"A","unverified":["A"]}'}}]},
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -205,11 +246,7 @@ async def test_explicit_zero_output_limit_is_not_replaced_by_default():
         assert body["max_tokens"] == 0
         return httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"message": {"content": '{"draft":"A","unverified":["A"]}'}}
-                ]
-            },
+            json={"choices": [{"message": {"content": '{"draft":"A","unverified":["A"]}'}}]},
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))

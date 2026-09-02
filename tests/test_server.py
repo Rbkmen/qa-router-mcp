@@ -11,6 +11,9 @@ class DraftFake:
     def __init__(self):
         self.prompts = []
 
+    async def count_tokens(self, prompt):
+        return 100
+
     async def generate(self, prompt, *, max_output_tokens=None, allow_schema_repair=True):
         self.prompts.append(prompt)
         return DraftEnvelope(

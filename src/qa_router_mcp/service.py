@@ -18,7 +18,7 @@ class RouterService:
     ) -> None:
         self.settings = settings
         self.drafting = drafting
-        self.events = events or JsonEventSink()
+        self.events = events or JsonEventSink(settings.metrics_path)
 
     def _record(
         self,
@@ -28,6 +28,7 @@ class RouterService:
         input_chars: int,
         stats: GenerationStats | None = None,
         validation_repair: bool = False,
+        estimated_prompt_tokens: int = 0,
     ) -> DraftEnvelope:
         self.events.emit(
             kind.value,
@@ -37,6 +38,11 @@ class RouterService:
             input_chars,
             stats or result.generation_stats,
             validation_repair,
+            model=self.settings.model,
+            profile_version=self.settings.profile_version,
+            source=self.settings.metrics_source,
+            estimated_prompt_tokens=estimated_prompt_tokens,
+            context_tokens=self.settings.context,
         )
         return result
 
@@ -48,6 +54,7 @@ class RouterService:
     ) -> DraftEnvelope:
         started = monotonic()
         validation_repair_attempted = False
+        estimated_prompt_tokens = 0
         packet = content if pattern is None else f"{content}\n{pattern}"
         input_chars = len(packet)
         if not self.settings.enabled:
@@ -59,25 +66,29 @@ class RouterService:
             if input_chars > input_limit:
                 raise PolicyError("input_too_large")
             safe_content = sanitize_transient(content, input_limit)
-            safe_pattern = (
-                sanitize_transient(pattern, input_limit) if pattern else None
-            )
+            safe_pattern = sanitize_transient(pattern, input_limit) if pattern else None
             prompt = build_prompt(kind, safe_content, safe_pattern)
+            output_limit = self.settings.output_limit(kind, packet)
+            estimated_prompt_tokens = await self.drafting.count_tokens(prompt)
+            if (
+                estimated_prompt_tokens + output_limit + self.settings.context_reserve_tokens
+                > self.settings.context
+            ):
+                raise PolicyError("token_budget_exceeded")
             result = await self.drafting.generate(
                 prompt,
-                max_output_tokens=self.settings.output_limit(kind),
+                max_output_tokens=output_limit,
             )
             issues = validate_generated_draft(kind, packet, result)
             if issues == ["truncated"]:
-                incomplete = DraftEnvelope(
-                    status="fallback", reason="local_model_truncated"
-                )
+                incomplete = DraftEnvelope(status="fallback", reason="local_model_truncated")
                 return self._record(
                     kind,
                     incomplete,
                     started,
                     input_chars,
                     result.generation_stats,
+                    estimated_prompt_tokens=estimated_prompt_tokens,
                 )
             if issues:
                 initial_stats = result.generation_stats
@@ -85,7 +96,7 @@ class RouterService:
                 try:
                     repaired = await self.drafting.generate(
                         f"{prompt}\n{repair_instruction(issues)}",
-                        max_output_tokens=self.settings.output_limit(kind),
+                        max_output_tokens=output_limit,
                         allow_schema_repair=False,
                     )
                 except BackendError as exc:
@@ -105,6 +116,7 @@ class RouterService:
                         input_chars,
                         combined_stats,
                         True,
+                        estimated_prompt_tokens,
                     )
                 return self._record(
                     kind,
@@ -113,11 +125,24 @@ class RouterService:
                     input_chars,
                     combined_stats,
                     True,
+                    estimated_prompt_tokens,
                 )
-            return self._record(kind, result, started, input_chars)
+            return self._record(
+                kind,
+                result,
+                started,
+                input_chars,
+                estimated_prompt_tokens=estimated_prompt_tokens,
+            )
         except PolicyError as exc:
             result = DraftEnvelope(status="refused", reason=exc.code)
-            return self._record(kind, result, started, input_chars)
+            return self._record(
+                kind,
+                result,
+                started,
+                input_chars,
+                estimated_prompt_tokens=estimated_prompt_tokens,
+            )
         except BackendError as exc:
             result = DraftEnvelope(status="fallback", reason=exc.code)
             return self._record(
@@ -127,4 +152,5 @@ class RouterService:
                 input_chars,
                 exc.stats,
                 validation_repair_attempted,
+                estimated_prompt_tokens,
             )

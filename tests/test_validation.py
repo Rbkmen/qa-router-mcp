@@ -11,6 +11,7 @@ def test_requested_case_count_supports_english_and_russian():
     assert requested_case_count("Сделай 4 кейса") == 4
     assert requested_case_count("Сделай три тест-кейса") == 3
     assert requested_case_count("Draft three focused smoke test cases") == 3
+    assert requested_case_count("Draft 12 focused test cases") == 12
     assert requested_case_count("Draft a focused case") == 1
 
 
@@ -27,11 +28,14 @@ def test_short_explanation_over_120_words_is_rejected():
 def test_source_bound_log_summary_may_have_no_unverified_claims():
     result = DraftEnvelope(draft="Visible signatures: timeout (2)", unverified=[])
 
-    assert validate_generated_draft(
-        DraftKind.LOG_SUMMARY,
-        "ERROR timeout\nERROR timeout",
-        result,
-    ) == []
+    assert (
+        validate_generated_draft(
+            DraftKind.LOG_SUMMARY,
+            "ERROR timeout\nERROR timeout",
+            result,
+        )
+        == []
+    )
 
 
 def test_numbered_test_case_heading_counts_as_title():
@@ -45,11 +49,14 @@ def test_numbered_test_case_heading_counts_as_title():
         unverified=[],
     )
 
-    assert validate_generated_draft(
-        DraftKind.TEST_CASES,
-        "Draft two test cases",
-        result,
-    ) == []
+    assert (
+        validate_generated_draft(
+            DraftKind.TEST_CASES,
+            "Draft two test cases",
+            result,
+        )
+        == []
+    )
 
 
 def test_every_test_case_block_requires_all_fields():
@@ -91,10 +98,7 @@ def test_numbered_heading_and_title_field_do_not_count_as_two_cases():
 
 def test_markdown_test_case_heading_without_colon_counts_as_title():
     result = DraftEnvelope(
-        draft=(
-            "## Test Case 1\nPreconditions: Ready\nSteps: 1. Act\n"
-            "Expected Result: Success"
-        ),
+        draft=("## Test Case 1\nPreconditions: Ready\nSteps: 1. Act\nExpected Result: Success"),
         unverified=[],
     )
 

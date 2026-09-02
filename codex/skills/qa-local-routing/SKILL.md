@@ -5,7 +5,7 @@ description: Use when a request has already been reduced to bounded sanitized te
 
 # QA Local Routing
 
-Use the local router only after Codex has selected the smallest relevant input packet.
+Use the local router backed only by `qwen/qwen3.5-9b` after Codex has selected the smallest relevant input packet. Do not select or introduce another local model or fallback model.
 
 ## Delegate locally
 

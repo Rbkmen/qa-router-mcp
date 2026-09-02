@@ -17,6 +17,12 @@ class EventSink(Protocol):
         input_chars: int = 0,
         stats: GenerationStats | None = None,
         validation_repair: bool = False,
+        *,
+        model: str = "unknown",
+        profile_version: str = "legacy",
+        source: str = "legacy",
+        estimated_prompt_tokens: int = 0,
+        context_tokens: int = 0,
     ) -> None: ...
 
 
@@ -33,16 +39,28 @@ class JsonEventSink:
         input_chars: int = 0,
         stats: GenerationStats | None = None,
         validation_repair: bool = False,
+        *,
+        model: str = "unknown",
+        profile_version: str = "legacy",
+        source: str = "legacy",
+        estimated_prompt_tokens: int = 0,
+        context_tokens: int = 0,
     ) -> None:
         usage = stats or GenerationStats()
         event = {
+            "schema_version": 2,
             "timestamp": datetime.now(UTC).isoformat(),
             "tool": tool,
+            "model": model,
+            "profile_version": profile_version,
+            "source": source,
             "outcome": outcome,
             "next_route": "local_draft" if outcome == "ok" else "terra",
             "duration_ms": round(duration_ms, 2),
             "error_category": error_category,
             "input_chars": input_chars,
+            "estimated_prompt_tokens": estimated_prompt_tokens,
+            "context_tokens": context_tokens,
             "prompt_tokens": usage.prompt_tokens,
             "output_tokens": usage.output_tokens,
             "requests": usage.requests,

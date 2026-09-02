@@ -1,5 +1,8 @@
 import os
+import random
+import string
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -15,7 +18,8 @@ from qa_router_mcp.service import RouterService
 )
 @pytest.mark.asyncio
 async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path):
-    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    data_dir = Path(os.environ.get("QA_ROUTER_DATA_DIR", tmp_path))
+    settings = replace(Settings.from_env(), data_dir=data_dir, metrics_source="smoke")
     drafting = LMStudioDraftBackend(settings)
     service = RouterService(
         settings,
@@ -33,12 +37,17 @@ async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path
         DraftKind.LOG_SUMMARY,
         "Authorization: Bearer synthetic-secret",
     )
+    dense_ascii = "".join(random.Random(42).choices(string.ascii_letters + string.digits, k=20_000))
+    context_refusal = await service.draft(DraftKind.TEST_CASES, dense_ascii)
 
     assert draft.status == "ok"
     assert draft.draft.count("Title:") >= 3
     assert "Steps:" in draft.draft
     assert "Expected Result:" in draft.draft
-    assert draft.unverified
+    assert isinstance(draft.unverified, list)
     assert refusal.status == "refused"
     assert refusal.reason == "secret_detected"
+    assert context_refusal.status == "refused"
+    assert context_refusal.reason == "token_budget_exceeded"
+    assert '"source":"smoke"' in settings.metrics_path.read_text()
     await drafting.client.aclose()

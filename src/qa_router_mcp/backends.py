@@ -1,11 +1,19 @@
 import asyncio
+from functools import lru_cache
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
+import lmstudio as lms
 from pydantic import ValidationError
 
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope, GenerationStats
+
+
+@lru_cache(maxsize=2)
+def _lmstudio_client(api_host: str) -> lms.Client:
+    return lms.Client(api_host)
 
 
 class BackendError(RuntimeError):
@@ -16,6 +24,8 @@ class BackendError(RuntimeError):
 
 
 class DraftBackend(Protocol):
+    async def count_tokens(self, prompt: str) -> int: ...
+
     async def generate(
         self,
         prompt: str,
@@ -29,7 +39,24 @@ class LMStudioDraftBackend:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
-        self._gate = asyncio.Semaphore(1)
+        self._gate = asyncio.Semaphore(settings.max_parallel)
+
+    def _count_tokens_sync(self, prompt: str) -> int:
+        api_host = urlsplit(self.settings.lmstudio_url).netloc
+        client = _lmstudio_client(api_host)
+        model = client.llm.model(
+            self.settings.model,
+            ttl=self.settings.ttl_seconds,
+        )
+        chat = lms.Chat.from_history({"messages": [{"role": "user", "content": prompt}]})
+        formatted_prompt = model.apply_prompt_template(chat)
+        return len(model.tokenize(formatted_prompt))
+
+    async def count_tokens(self, prompt: str) -> int:
+        try:
+            return await asyncio.to_thread(self._count_tokens_sync, prompt)
+        except Exception as exc:
+            raise BackendError("local_tokenizer_error") from exc
 
     async def _request(self, payload: dict[str, object]) -> tuple[str, GenerationStats]:
         try:
@@ -108,9 +135,7 @@ class LMStudioDraftBackend:
             "stream": False,
             "ttl": self.settings.ttl_seconds,
             "max_tokens": (
-                self.settings.max_output_tokens
-                if max_output_tokens is None
-                else max_output_tokens
+                self.settings.max_output_tokens if max_output_tokens is None else max_output_tokens
             ),
             "temperature": 0,
         }

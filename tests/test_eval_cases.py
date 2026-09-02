@@ -16,6 +16,9 @@ class EvalDraftBackend:
     def __init__(self, case):
         self.case = case
 
+    async def count_tokens(self, prompt):
+        return 100
+
     async def generate(self, prompt, *, max_output_tokens=None, allow_schema_repair=True):
         if code := self.case.get("backend_error"):
             raise BackendError(code)
