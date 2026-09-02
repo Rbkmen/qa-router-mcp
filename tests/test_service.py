@@ -144,8 +144,21 @@ async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path):
     result = await service.draft(DraftKind.TRANSLATION, "Translate: hello")
 
     assert result.status == "ok"
+    assert result.canary_feedback_required is True
     event = (tmp_path / "metrics.jsonl").read_text()
     assert '"source":"interactive"' in event
+
+
+@pytest.mark.asyncio
+async def test_benchmark_draft_does_not_request_canary_feedback(tmp_path):
+    drafting = DraftFake(DraftEnvelope(draft="Translated", unverified=[]))
+    settings = Settings(data_dir=tmp_path, metrics_source="benchmark")
+    service = RouterService(settings, drafting)
+
+    result = await service.draft(DraftKind.TRANSLATION, "Translate: hello")
+
+    assert result.status == "ok"
+    assert result.canary_feedback_required is False
 
 
 @pytest.mark.asyncio
@@ -302,3 +315,73 @@ def test_event_sink_logs_usage_without_content(capsys, tmp_path):
     assert event["input_chars"] == 50
     assert "Translated text" not in path.read_text()
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_event_sink_records_content_free_canary_feedback(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+
+    receipt = sink.record_feedback(
+        "test_cases",
+        "edited",
+        "coverage",
+        profile_version="router-v6",
+    )
+
+    event = __import__("json").loads(path.read_text())
+    assert receipt.status == "recorded"
+    assert receipt.feedback_count == 1
+    assert receipt.target == 50
+    assert event == {
+        "schema_version": 3,
+        "event_type": "canary_feedback",
+        "timestamp": event["timestamp"],
+        "tool": "test_cases",
+        "profile_version": "router-v6",
+        "source": "interactive",
+        "verdict": "edited",
+        "reason": "coverage",
+    }
+    assert "draft" not in path.read_text()
+    assert "content" not in path.read_text()
+
+
+def test_canary_stops_recording_after_fifty_reviews(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+
+    for _ in range(50):
+        receipt = sink.record_feedback(
+            "translation",
+            "accepted",
+            "none",
+            profile_version="router-v6",
+        )
+
+    completed = sink.record_feedback(
+        "translation",
+        "accepted",
+        "none",
+        profile_version="router-v6",
+    )
+
+    assert receipt.status == "recorded"
+    assert receipt.feedback_count == 50
+    assert completed.status == "complete"
+    assert completed.feedback_count == 50
+    assert len(path.read_text().splitlines()) == 50
+    assert sink.canary_active is False
+
+
+@pytest.mark.parametrize(
+    ("verdict", "reason"),
+    [("accepted", "coverage"), ("edited", "none"), ("rejected", "none")],
+)
+def test_canary_feedback_requires_a_consistent_reason(tmp_path, verdict, reason):
+    service = RouterService(
+        Settings(data_dir=tmp_path),
+        DraftFake(DraftEnvelope(draft="unused", unverified=[])),
+    )
+
+    with pytest.raises(ValueError, match="feedback reason"):
+        service.record_canary_feedback(DraftKind.TEST_CASES, verdict, reason)

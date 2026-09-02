@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from os import environ
 from pathlib import Path
 
+from qa_router_mcp.events import CANARY_TARGET
+
 
 def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     cutoff = datetime.now(UTC) - timedelta(days=days)
@@ -13,6 +15,9 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     sources: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
     models: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
     profiles: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
+    feedback_verdicts: Counter[str] = Counter()
+    feedback_reasons: Counter[str] = Counter()
+    feedback_tools: dict[str, Counter[str]] = defaultdict(Counter)
     totals = Counter()
     durations: list[float] = []
 
@@ -22,10 +27,16 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             timestamp = datetime.fromisoformat(event["timestamp"])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             continue
+        tool = str(event.get("tool", "unknown"))
+        if event.get("event_type") == "canary_feedback":
+            verdict = str(event.get("verdict", "unknown"))
+            reason = str(event.get("reason", "unknown"))
+            feedback_verdicts[verdict] += 1
+            feedback_reasons[reason] += 1
+            feedback_tools[tool][verdict] += 1
+            continue
         if timestamp < cutoff:
             continue
-
-        tool = str(event.get("tool", "unknown"))
         outcome = str(event.get("outcome", "unknown"))
         is_v2 = event.get("schema_version") == 2
         source = str(event.get("source", "legacy")) if is_v2 else "legacy"
@@ -71,6 +82,17 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         "by_source": _dimension_summary(sources),
         "by_model": _dimension_summary(models),
         "by_profile": _dimension_summary(profiles),
+        "canary_feedback": {
+            "target": CANARY_TARGET,
+            "reviews": feedback_verdicts.total(),
+            "complete": feedback_verdicts.total() >= CANARY_TARGET,
+            "verdicts": dict(sorted(feedback_verdicts.items())),
+            "reasons": dict(sorted(feedback_reasons.items())),
+            "by_tool": {
+                tool: dict(sorted(verdicts.items()))
+                for tool, verdicts in sorted(feedback_tools.items())
+            },
+        },
     }
 
 

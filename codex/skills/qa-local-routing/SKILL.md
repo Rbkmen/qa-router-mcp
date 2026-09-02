@@ -5,23 +5,33 @@ description: Use when a request has already been reduced to bounded sanitized te
 
 # QA Local Routing
 
-Use the local router backed only by `qwen/qwen3.5-9b` after Codex has selected the smallest relevant input packet. Do not select or introduce another local model or fallback model.
+Use only `qwen/qwen3.5-9b` after Codex selects the smallest relevant sanitized packet. Local output is an unverified draft, not a decision.
 
-## Delegate locally
+## Route automatically
 
-- `draft_test_cases`: focused case or checklist drafts.
-- `summarize_logs`: grouping by visible signature without root-cause claims.
-- `draft_automation_skeleton`: a skeleton based on an explicit supplied pattern.
-- `translate_text`: bounded translation with explicitly preserved terms.
-- `rewrite_text`: shorten, correct, or restyle supplied text without changing facts.
-- `explain_short`: brief stable explanation that does not need research or citations.
-- `summarize_text`: source-bound summary with an optional focus.
+- `draft_test_cases`: 4–12 requested cases.
+- `summarize_logs`: at least 6,000 characters; group visible signatures only.
+- `summarize_text`: at least 4,000 characters; use only supplied facts.
+- `translate_text` or `rewrite_text`: at least 2,000 characters.
+- `draft_automation_skeleton`: an explicit project pattern and a multi-step scenario.
+
+Keep smaller tasks in Terra. Use `explain_short` only when the user explicitly requests local Qwen. An explicit local-model request may override the size threshold when policy permits.
+
+## Review and canary
 
 Treat every result as a draft. Verify all `assumptions` and `unverified` items.
 
+When `canary_feedback_required` is true, call `record_canary_feedback` exactly once after review:
+
+- unchanged draft: `accepted` + `none`;
+- corrected draft: `edited` + the main reason;
+- discarded draft: `rejected` + the main reason.
+
+Feedback contains only route kind, verdict, and reason—never task or draft text. The router stops requesting feedback after 50 reviews.
+
 ## Keep in Codex
 
-Codex remains responsible for Jira/MR/diff analysis, CodeGraph navigation, current or uncertain facts, research and citations, final coverage, severity, release readiness, code changes, and every external-system action. Continue in Codex when the router refuses, times out, or returns fallback.
+Codex owns Jira/MR/diff analysis, current facts, evidence, final coverage, severity, release readiness, code changes, and every external-system action. Continue in Terra when local routing refuses or falls back.
 
 Never include credentials, cookies, tokens, personal or payment data, complete repositories, or unrestricted corporate documents.
 

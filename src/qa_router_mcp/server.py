@@ -2,7 +2,13 @@ from fastmcp import FastMCP
 
 from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import DraftEnvelope, DraftKind
+from qa_router_mcp.contracts import (
+    CanaryFeedbackReceipt,
+    CanaryReason,
+    CanaryVerdict,
+    DraftEnvelope,
+    DraftKind,
+)
 from qa_router_mcp.events import JsonEventSink
 from qa_router_mcp.service import RouterService
 
@@ -66,6 +72,15 @@ def build_server(service: RouterService) -> FastMCP:
         if focus:
             content = f"FOCUS:\n{focus}\n{content}"
         return await service.draft(DraftKind.TEXT_SUMMARY, content)
+
+    @mcp.tool
+    async def record_canary_feedback(
+        route_kind: DraftKind,
+        verdict: CanaryVerdict,
+        reason: CanaryReason,
+    ) -> CanaryFeedbackReceipt:
+        """Record content-free review feedback when a local draft requests it."""
+        return service.record_canary_feedback(route_kind, verdict, reason)
 
     return mcp
 

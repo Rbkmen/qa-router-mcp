@@ -4,6 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
+type CanaryVerdict = Literal["accepted", "edited", "rejected"]
+type CanaryReason = Literal["none", "factual", "coverage", "format", "too_verbose", "other"]
+
 
 @dataclass(frozen=True, slots=True)
 class GenerationStats:
@@ -37,6 +40,7 @@ class DraftEnvelope(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     unverified: list[str] = Field(default_factory=list)
     reason: str | None = None
+    canary_feedback_required: bool = False
     _generation_stats: GenerationStats = PrivateAttr(default_factory=GenerationStats)
 
     @property
@@ -55,3 +59,9 @@ class DraftEnvelope(BaseModel):
         elif not self.reason:
             raise ValueError("non-success results require a reason")
         return self
+
+
+class CanaryFeedbackReceipt(BaseModel):
+    status: Literal["recorded", "complete"]
+    feedback_count: int
+    target: int

@@ -2,7 +2,14 @@ from time import monotonic
 
 from qa_router_mcp.backends import BackendError, DraftBackend
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import DraftEnvelope, DraftKind, GenerationStats
+from qa_router_mcp.contracts import (
+    CanaryFeedbackReceipt,
+    CanaryReason,
+    CanaryVerdict,
+    DraftEnvelope,
+    DraftKind,
+    GenerationStats,
+)
 from qa_router_mcp.events import EventSink, JsonEventSink
 from qa_router_mcp.policy import PolicyError, assert_allowed_request, sanitize_transient
 from qa_router_mcp.prompts import build_prompt
@@ -20,6 +27,21 @@ class RouterService:
         self.drafting = drafting
         self.events = events or JsonEventSink(settings.metrics_path)
 
+    def record_canary_feedback(
+        self,
+        route_kind: DraftKind,
+        verdict: CanaryVerdict,
+        reason: CanaryReason,
+    ) -> CanaryFeedbackReceipt:
+        if (verdict == "accepted") != (reason == "none"):
+            raise ValueError("feedback reason must be none only for accepted drafts")
+        return self.events.record_feedback(
+            route_kind.value,
+            verdict,
+            reason,
+            profile_version=self.settings.profile_version,
+        )
+
     def _record(
         self,
         kind: DraftKind,
@@ -30,6 +52,11 @@ class RouterService:
         validation_repair: bool = False,
         estimated_prompt_tokens: int = 0,
     ) -> DraftEnvelope:
+        result.canary_feedback_required = (
+            result.status == "ok"
+            and self.settings.metrics_source == "interactive"
+            and self.events.canary_active
+        )
         self.events.emit(
             kind.value,
             result.status,

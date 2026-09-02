@@ -78,3 +78,75 @@ def test_weekly_report_aggregates_metadata_only():
     assert report["by_model"]["unknown"] == report["by_source"]["legacy"]
     assert report["by_profile"]["router-v2"] == report["by_source"]["benchmark"]
     assert report["by_profile"]["legacy"] == report["by_source"]["legacy"]
+
+
+def test_weekly_report_separates_canary_feedback_from_generation_events():
+    timestamp = datetime.now(UTC).isoformat()
+    lines = [
+        json.dumps(
+            {
+                "schema_version": 2,
+                "timestamp": timestamp,
+                "tool": "test_cases",
+                "outcome": "ok",
+                "source": "interactive",
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 3,
+                "event_type": "canary_feedback",
+                "timestamp": timestamp,
+                "tool": "test_cases",
+                "verdict": "edited",
+                "reason": "coverage",
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 3,
+                "event_type": "canary_feedback",
+                "timestamp": timestamp,
+                "tool": "translation",
+                "verdict": "accepted",
+                "reason": "none",
+            }
+        ),
+    ]
+
+    report = summarize_events(lines)
+
+    assert report["events"] == 1
+    assert report["outcomes"] == {"ok": 1}
+    assert report["canary_feedback"] == {
+        "target": 50,
+        "reviews": 2,
+        "complete": False,
+        "verdicts": {"accepted": 1, "edited": 1},
+        "reasons": {"coverage": 1, "none": 1},
+        "by_tool": {
+            "test_cases": {"edited": 1},
+            "translation": {"accepted": 1},
+        },
+    }
+
+
+def test_canary_feedback_progress_is_lifetime_not_weekly():
+    old_timestamp = datetime(2020, 1, 1, tzinfo=UTC).isoformat()
+    report = summarize_events(
+        [
+            json.dumps(
+                {
+                    "schema_version": 3,
+                    "event_type": "canary_feedback",
+                    "timestamp": old_timestamp,
+                    "tool": "test_cases",
+                    "verdict": "accepted",
+                    "reason": "none",
+                }
+            )
+        ]
+    )
+
+    assert report["events"] == 0
+    assert report["canary_feedback"]["reviews"] == 1

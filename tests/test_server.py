@@ -26,7 +26,7 @@ class DraftFake:
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_only_seven_drafting_tools(tmp_path):
+async def test_server_exposes_seven_drafting_tools_and_canary_feedback(tmp_path):
     drafting = DraftFake()
     service = RouterService(Settings(data_dir=tmp_path), drafting)
 
@@ -40,6 +40,7 @@ async def test_server_exposes_only_seven_drafting_tools(tmp_path):
             "rewrite_text",
             "explain_short",
             "summarize_text",
+            "record_canary_feedback",
         }
 
         result = await client.call_tool(
@@ -47,6 +48,20 @@ async def test_server_exposes_only_seven_drafting_tools(tmp_path):
             {"requirement": "Guest checkout"},
         )
         assert result.structured_content["status"] == "ok"
+
+        feedback = await client.call_tool(
+            "record_canary_feedback",
+            {
+                "route_kind": "test_cases",
+                "verdict": "edited",
+                "reason": "coverage",
+            },
+        )
+        assert feedback.structured_content == {
+            "status": "recorded",
+            "feedback_count": 1,
+            "target": 50,
+        }
 
 
 @pytest.mark.asyncio
