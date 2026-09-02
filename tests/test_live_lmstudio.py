@@ -1,27 +1,25 @@
 import os
+from dataclasses import replace
 
 import pytest
 
-from qa_router_mcp.backends import HermesLearningBackend, OllamaDraftBackend
+from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftKind
 from qa_router_mcp.service import RouterService
-from qa_router_mcp.store import ProposalStore
 
 
 @pytest.mark.skipif(
     os.environ.get("QA_ROUTER_LIVE") != "1",
-    reason="requires local Ollama and the pinned Gemma model",
+    reason="requires local LM Studio and a pinned MLX model",
 )
 @pytest.mark.asyncio
-async def test_synthetic_draft_and_secret_refusal_against_live_ollama(tmp_path):
-    settings = Settings(data_dir=tmp_path)
-    drafting = OllamaDraftBackend(settings)
+async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path):
+    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    drafting = LMStudioDraftBackend(settings)
     service = RouterService(
         settings,
         drafting,
-        HermesLearningBackend(settings),
-        ProposalStore(tmp_path),
     )
 
     draft = await service.draft(

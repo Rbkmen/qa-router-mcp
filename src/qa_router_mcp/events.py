@@ -1,6 +1,10 @@
 import json
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
+
+from qa_router_mcp.contracts import GenerationStats
 
 
 class EventSink(Protocol):
@@ -10,21 +14,49 @@ class EventSink(Protocol):
         outcome: str,
         duration_ms: float,
         error_category: str | None,
+        input_chars: int = 0,
+        stats: GenerationStats | None = None,
+        validation_repair: bool = False,
     ) -> None: ...
 
 
 class JsonEventSink:
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+
     def emit(
         self,
         tool: str,
         outcome: str,
         duration_ms: float,
         error_category: str | None,
+        input_chars: int = 0,
+        stats: GenerationStats | None = None,
+        validation_repair: bool = False,
     ) -> None:
+        usage = stats or GenerationStats()
         event = {
+            "timestamp": datetime.now(UTC).isoformat(),
             "tool": tool,
             "outcome": outcome,
+            "next_route": "local_draft" if outcome == "ok" else "terra",
             "duration_ms": round(duration_ms, 2),
             "error_category": error_category,
+            "input_chars": input_chars,
+            "prompt_tokens": usage.prompt_tokens,
+            "output_tokens": usage.output_tokens,
+            "requests": usage.requests,
+            "truncated": usage.truncated,
+            "validation_repair": validation_repair,
         }
-        print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
+        line = json.dumps(event, separators=(",", ":"))
+        print(line, file=sys.stderr, flush=True)
+        if self.path is not None:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.parent.chmod(0o700)
+                with self.path.open("a", encoding="utf-8") as metrics:
+                    metrics.write(line + "\n")
+                self.path.chmod(0o600)
+            except OSError:
+                pass

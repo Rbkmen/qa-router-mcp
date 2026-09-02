@@ -5,65 +5,127 @@ import httpx
 from pydantic import ValidationError
 
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import DraftEnvelope
-from qa_router_mcp.policy import validate_learning_text
+from qa_router_mcp.contracts import DraftEnvelope, GenerationStats
 
 
 class BackendError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, stats: GenerationStats | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.stats = stats or GenerationStats()
 
 
 class DraftBackend(Protocol):
-    async def generate(self, prompt: str) -> DraftEnvelope: ...
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+        allow_schema_repair: bool = True,
+    ) -> DraftEnvelope: ...
 
 
-class LearningBackend(Protocol):
-    async def apply(self, text: str) -> str: ...
-
-
-class OllamaDraftBackend:
+class LMStudioDraftBackend:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
         self._gate = asyncio.Semaphore(1)
 
-    async def _request(self, payload: dict[str, object]) -> str:
+    async def _request(self, payload: dict[str, object]) -> tuple[str, GenerationStats]:
         try:
             async with self._gate:
                 response = await self.client.post(
-                    f"{self.settings.ollama_url}/api/chat",
+                    f"{self.settings.lmstudio_url}/v1/chat/completions",
                     json=payload,
                 )
                 response.raise_for_status()
-            return response.json()["message"]["content"]
-        except (httpx.HTTPError, KeyError, TypeError) as exc:
-            raise BackendError("ollama_invalid_response") from exc
+            body = response.json()
+            message = body["choices"][0]["message"]
+            content = message.get("content") or message.get("reasoning_content")
+            if not isinstance(content, str):
+                raise TypeError("LM Studio message content must be text")
+            usage = body.get("usage", {})
+            if not isinstance(usage, dict):
+                usage = {}
+            choice = body["choices"][0]
+            stats = GenerationStats(
+                prompt_tokens=_non_negative_int(usage.get("prompt_tokens")),
+                output_tokens=_non_negative_int(usage.get("completion_tokens")),
+                requests=1,
+                truncated=choice.get("finish_reason") in {"length", "max_tokens"},
+            )
+            return content, stats
+        except httpx.HTTPStatusError as exc:
+            raise BackendError(
+                "local_model_invalid_response",
+                GenerationStats(requests=1),
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise BackendError(
+                "local_model_transport_error",
+                GenerationStats(requests=1),
+            ) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BackendError(
+                "local_model_invalid_response",
+                GenerationStats(requests=1),
+            ) from exc
 
-    async def generate(self, prompt: str) -> DraftEnvelope:
-        response_schema = DraftEnvelope.model_json_schema()
-        response_schema["required"] = ["draft", "unverified"]
+    async def _request_with_transport_retry(
+        self,
+        payload: dict[str, object],
+    ) -> tuple[str, GenerationStats]:
+        failed_stats = GenerationStats()
+        for attempt in range(2):
+            try:
+                content, stats = await self._request(payload)
+                return content, failed_stats.merged(stats)
+            except BackendError as exc:
+                failed_stats = failed_stats.merged(exc.stats)
+                if exc.code != "local_model_transport_error" or attempt == 1:
+                    raise BackendError(exc.code, failed_stats) from exc
+        raise BackendError("local_model_transport_error", failed_stats)
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+        allow_schema_repair: bool = True,
+    ) -> DraftEnvelope:
+        response_schema = _response_schema()
         payload: dict[str, object] = {
             "model": self.settings.model,
             "messages": [{"role": "user", "content": prompt}],
-            "format": response_schema,
-            "think": False,
-            "stream": False,
-            "keep_alive": self.settings.keep_alive,
-            "options": {
-                "num_ctx": self.settings.context,
-                "num_predict": self.settings.max_output_tokens,
-                "temperature": 0.1,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "draft_envelope",
+                    "strict": True,
+                    "schema": response_schema,
+                },
             },
+            "stream": False,
+            "ttl": self.settings.ttl_seconds,
+            "max_tokens": (
+                self.settings.max_output_tokens
+                if max_output_tokens is None
+                else max_output_tokens
+            ),
+            "temperature": 0,
         }
-        for attempt in range(2):
-            content = await self._request(payload)
+        stats = GenerationStats()
+        attempts = 2 if allow_schema_repair else 1
+        for attempt in range(attempts):
+            content, request_stats = await self._request_with_transport_retry(payload)
+            stats = stats.merged(request_stats)
             try:
-                return DraftEnvelope.model_validate_json(content)
+                result = DraftEnvelope.model_validate_json(content)
+                result.set_generation_stats(stats)
+                return result
             except ValidationError as exc:
-                if attempt == 1:
-                    raise BackendError("ollama_invalid_schema") from exc
+                if attempt == attempts - 1:
+                    raise BackendError("local_model_invalid_schema", stats) from exc
                 messages = payload["messages"]
                 assert isinstance(messages, list)
                 messages.append(
@@ -75,46 +137,23 @@ class OllamaDraftBackend:
                         ),
                     }
                 )
-        raise BackendError("ollama_invalid_schema")
+        raise BackendError("local_model_invalid_schema", stats)
 
 
-class HermesLearningBackend:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+def _non_negative_int(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
-    async def apply(self, text: str) -> str:
-        safe_text = validate_learning_text(text)
-        prompt = (
-            "Store this user-approved generic QA preference using the memory tool. "
-            "Do not create or edit skills, infer project facts, or rewrite the text:\n"
-            + safe_text
-        )
-        env = {
-            "HOME": "/Users/andreiviarshko",
-            "PATH": "/Users/andreiviarshko/.local/bin:/opt/homebrew/bin:/usr/bin:/bin",
-            "HERMES_PROFILE": "qa-routine",
-        }
-        process = await asyncio.create_subprocess_exec(
-            str(self.settings.hermes_command),
-            "--reasoning",
-            "none",
-            "--toolsets",
-            "memory",
-            "--ignore-rules",
-            "--oneshot",
-            prompt,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        try:
-            stdout, _ = await asyncio.wait_for(
-                process.communicate(), timeout=self.settings.timeout_seconds
-            )
-        except TimeoutError as exc:
-            process.kill()
-            await process.wait()
-            raise BackendError("hermes_timeout") from exc
-        if process.returncode != 0:
-            raise BackendError("hermes_failed")
-        return stdout.decode().strip()
+
+def _response_schema() -> dict[str, object]:
+    string_list = {"type": "array", "items": {"type": "string"}}
+    return {
+        "title": "DraftEnvelope",
+        "type": "object",
+        "properties": {
+            "draft": {"type": "string"},
+            "assumptions": string_list,
+            "unverified": string_list,
+        },
+        "required": ["draft", "assumptions", "unverified"],
+        "additionalProperties": False,
+    }

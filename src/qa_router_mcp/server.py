@@ -1,15 +1,10 @@
 from fastmcp import FastMCP
 
-from qa_router_mcp.backends import HermesLearningBackend, OllamaDraftBackend
+from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import (
-    DraftEnvelope,
-    DraftKind,
-    LearningEnvelope,
-    LearningProposal,
-)
+from qa_router_mcp.contracts import DraftEnvelope, DraftKind
+from qa_router_mcp.events import JsonEventSink
 from qa_router_mcp.service import RouterService
-from qa_router_mcp.store import ProposalStore
 
 
 def build_server(service: RouterService) -> FastMCP:
@@ -72,29 +67,6 @@ def build_server(service: RouterService) -> FastMCP:
             content = f"FOCUS:\n{focus}\n{content}"
         return await service.draft(DraftKind.TEXT_SUMMARY, content)
 
-    @mcp.tool
-    def list_learning_proposals() -> list[LearningProposal]:
-        """List sanitized pending proposals for explicit user review."""
-        return service.list_proposals()
-
-    @mcp.tool
-    async def approve_learning_proposal(
-        proposal_id: str,
-        user_confirmed: bool,
-    ) -> LearningEnvelope:
-        """Approve one reviewed proposal and send only its validated text to Hermes."""
-        if not user_confirmed:
-            return LearningEnvelope(
-                status="fallback",
-                reason="explicit_approval_required",
-            )
-        return await service.approve_proposal(proposal_id)
-
-    @mcp.tool
-    def reject_learning_proposal(proposal_id: str) -> bool:
-        """Delete one pending proposal without sending it to Hermes."""
-        return service.reject_proposal(proposal_id)
-
     return mcp
 
 
@@ -102,8 +74,7 @@ def main() -> None:
     settings = Settings.from_env()
     service = RouterService(
         settings,
-        OllamaDraftBackend(settings),
-        HermesLearningBackend(settings),
-        ProposalStore(settings.data_dir),
+        LMStudioDraftBackend(settings),
+        JsonEventSink(settings.metrics_path),
     )
     build_server(service).run()

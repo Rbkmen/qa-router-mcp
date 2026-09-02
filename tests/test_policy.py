@@ -5,7 +5,6 @@ from qa_router_mcp.policy import (
     PolicyError,
     assert_allowed_request,
     sanitize_transient,
-    validate_learning_text,
 )
 
 
@@ -40,18 +39,3 @@ def test_oversized_input_is_rejected():
 def test_decision_request_is_refused():
     with pytest.raises(PolicyError, match="codex_only_decision"):
         assert_allowed_request(DraftKind.TEST_CASES, "Determine release readiness")
-
-
-def test_learning_text_rejects_corporate_artifacts():
-    for text in (
-        "Remember ABC-123",
-        "Use feature/login-rework",
-        "Copy src/project/private.py",
-        "Read /Users/me/company/repo",
-    ):
-        with pytest.raises(PolicyError, match="learning_content_forbidden"):
-            validate_learning_text(text)
-
-
-def test_generic_learning_text_is_accepted_verbatim():
-    assert validate_learning_text("  Use concise case titles  ") == "Use concise case titles"

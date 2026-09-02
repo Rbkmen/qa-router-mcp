@@ -1,12 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from qa_router_mcp.contracts import (
-    DraftEnvelope,
-    LearningEnvelope,
-    LearningProposal,
-    ProposalStatus,
-)
+from qa_router_mcp.contracts import DraftEnvelope, GenerationStats
 
 
 def test_successful_qa_shaped_draft_keeps_unverified_items():
@@ -38,13 +33,12 @@ def test_successful_draft_discards_model_generated_reason():
     assert result.reason is None
 
 
-def test_learning_proposal_starts_pending():
-    proposal = LearningProposal(id="lp_123", text="Use Given/When/Then headings")
+def test_generation_stats_are_runtime_only():
+    result = DraftEnvelope(draft="Case A", unverified=["Review"])
+    result.set_generation_stats(
+        GenerationStats(prompt_tokens=20, output_tokens=10, requests=1)
+    )
 
-    assert proposal.status is ProposalStatus.PENDING
-
-
-def test_learning_fallback_requires_reason():
-    result = LearningEnvelope(status="fallback", reason="hermes_timeout")
-
-    assert result.proposal is None
+    assert result.generation_stats.output_tokens == 10
+    assert "generation_stats" not in result.model_dump()
+    assert "generation_stats" not in DraftEnvelope.model_json_schema()["properties"]

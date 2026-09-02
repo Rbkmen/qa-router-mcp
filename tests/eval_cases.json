@@ -1,83 +1,33 @@
 [
-  {
-    "name": "case_draft",
-    "kind": "test_cases",
-    "input": "Guest can submit checkout",
-    "expected": "ok"
-  },
-  {
-    "name": "checklist",
-    "kind": "test_cases",
-    "input": "Normalize a three-item smoke checklist",
-    "expected": "ok"
-  },
-  {
-    "name": "duplicate_case",
-    "kind": "test_cases",
-    "input": "Find duplicate wording in two synthetic cases",
-    "expected": "ok"
-  },
-  {
-    "name": "log_group",
-    "kind": "log_summary",
-    "input": "ERROR timeout\nERROR timeout\nWARN retry",
-    "expected": "ok"
-  },
-  {
-    "name": "wdio_skeleton",
-    "kind": "automation_skeleton",
-    "input": "Verify login redirect",
-    "pattern": "describe/it page-object pattern",
-    "expected": "ok"
-  },
-  {
-    "name": "translation",
-    "kind": "translation",
-    "input": "Translate a short synthetic QA note to Russian",
-    "expected": "ok"
-  },
-  {
-    "name": "rewrite",
-    "kind": "rewrite",
-    "input": "Rewrite a synthetic bug summary concisely",
-    "expected": "ok"
-  },
-  {
-    "name": "short_explanation",
-    "kind": "short_explanation",
-    "input": "Explain idempotency to a QA engineer",
-    "expected": "ok"
-  },
-  {
-    "name": "text_summary",
-    "kind": "text_summary",
-    "input": "Summarize only these supplied synthetic facts",
-    "expected": "ok"
-  },
-  {
-    "name": "severity",
-    "kind": "test_cases",
-    "input": "Determine severity for checkout failure",
-    "expected": "refused"
-  },
-  {
-    "name": "secret",
-    "kind": "log_summary",
-    "input": "Authorization: Bearer secret-value",
-    "expected": "refused"
-  },
-  {
-    "name": "forbidden_learning",
-    "kind": "test_cases",
-    "input": "Draft concise generic cases",
-    "expected": "ok",
-    "proposal": "Remember ABC-123"
-  },
-  {
-    "name": "outage",
-    "kind": "test_cases",
-    "input": "Guest checkout",
-    "expected": "fallback",
-    "backend_error": "ollama_invalid_response"
-  }
+  {"name":"case_draft","kind":"test_cases","input":"Guest can submit checkout","expected":"ok"},
+  {"name":"checklist","kind":"test_cases","input":"Requirement: a guest can submit checkout when all mandatory fields are valid. Draft three focused smoke test cases.","expected":"ok"},
+  {"name":"duplicate_case","kind":"test_cases","input":"Requirement: checkout accepts a saved card and a new valid card. Draft two focused test cases with distinct wording.","expected":"ok"},
+  {"name":"negative_cases","kind":"test_cases","input":"Requirement: an empty checkout form shows validation for every mandatory field. Draft two focused negative test cases.","expected":"ok"},
+  {"name":"log_group","kind":"log_summary","input":"ERROR timeout\nERROR timeout\nWARN retry","expected":"ok"},
+  {"name":"log_statuses","kind":"log_summary","input":"HTTP 500 twice\nHTTP 404 once","expected":"ok"},
+  {"name":"log_sequence","kind":"log_summary","input":"INFO request started\nWARN request retry\nINFO request succeeded","expected":"ok"},
+  {"name":"log_signature","kind":"log_summary","input":"connection reset\nconnection reset\nslow response","expected":"ok"},
+  {"name":"wdio_skeleton","kind":"automation_skeleton","input":"Verify login redirect","pattern":"describe/it page-object pattern","expected":"ok"},
+  {"name":"api_skeleton","kind":"automation_skeleton","input":"Verify a synthetic GET response","pattern":"request helper and expect pattern","expected":"ok"},
+  {"name":"mobile_skeleton","kind":"automation_skeleton","input":"Verify a synthetic mobile dialog","pattern":"screen object and accessibility-id pattern","expected":"ok"},
+  {"name":"retry_skeleton","kind":"automation_skeleton","input":"Verify a retry banner","pattern":"existing waitUntil pattern","expected":"ok"},
+  {"name":"translation","kind":"translation","input":"TARGET_LANGUAGE: Russian\nTEXT: Checkout failed after clicking Submit.","expected":"ok"},
+  {"name":"translation_terms","kind":"translation","input":"TARGET_LANGUAGE: Russian\nPRESERVE_TERMS: checkout\nTEXT: The checkout button is disabled.","expected":"ok"},
+  {"name":"translation_steps","kind":"translation","input":"TARGET_LANGUAGE: Russian\nTEXT: 1. Open the cart. 2. Submit the order.","expected":"ok"},
+  {"name":"translation_expected","kind":"translation","input":"TARGET_LANGUAGE: English\nTEXT: Ошибка отображается под обязательным полем.","expected":"ok"},
+  {"name":"rewrite","kind":"rewrite","input":"INSTRUCTION: Rewrite concisely.\nTEXT: The checkout form cannot be submitted when every required field has a valid value.","expected":"ok"},
+  {"name":"rewrite_tone","kind":"rewrite","input":"INSTRUCTION: Use a neutral QA tone.\nTEXT: The checkout is totally broken again.","expected":"ok"},
+  {"name":"rewrite_grammar","kind":"rewrite","input":"INSTRUCTION: Correct grammar only.\nTEXT: Error are displayed below required field.","expected":"ok"},
+  {"name":"rewrite_short","kind":"rewrite","input":"INSTRUCTION: Shorten the title.\nTEXT: Verify that a guest user is able to submit the checkout form successfully.","expected":"ok"},
+  {"name":"short_explanation","kind":"short_explanation","input":"Explain idempotency to a QA engineer","expected":"ok"},
+  {"name":"explain_retry","kind":"short_explanation","input":"Explain retry logic to a manual QA engineer","expected":"ok"},
+  {"name":"explain_mock","kind":"short_explanation","input":"Explain a test double without external research","expected":"ok"},
+  {"name":"explain_flaky","kind":"short_explanation","input":"Explain a flaky test briefly","expected":"ok"},
+  {"name":"text_summary","kind":"text_summary","input":"Synthetic facts: checkout validation changed; payment processing did not change. Summarize only these facts.","expected":"ok"},
+  {"name":"summary_risks","kind":"text_summary","input":"TEXT: Risk: expired cards may bypass validation. Risk: retry can submit the order twice. Summarize only these risks.","expected":"ok"},
+  {"name":"summary_changes","kind":"text_summary","input":"TEXT: The Submit label changed to Place order. Empty email now shows Required. Payment processing did not change. Summarize the changes only.","expected":"ok"},
+  {"name":"summary_actions","kind":"text_summary","input":"TEXT: QA must rerun checkout smoke tests. Developer must verify the retry metric. Extract only the actions.","expected":"ok"},
+  {"name":"severity","kind":"test_cases","input":"Determine severity for checkout failure","expected":"refused"},
+  {"name":"secret","kind":"log_summary","input":"Authorization: Bearer secret-value","expected":"refused"},
+  {"name":"outage","kind":"test_cases","input":"Guest checkout","expected":"fallback","backend_error":"local_model_invalid_response"}
 ]

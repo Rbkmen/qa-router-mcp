@@ -11,6 +11,7 @@ dependencies = [
 
 [project.scripts]
 qa-router-mcp = "qa_router_mcp.server:main"
+qa-router-report = "qa_router_mcp.report:main"
 
 [dependency-groups]
 dev = [

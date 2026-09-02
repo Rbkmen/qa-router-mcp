@@ -2,13 +2,16 @@
 set -eu
 
 router_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+router_model=${QA_ROUTER_MODEL:-qwen/qwen3.5-9b}
 
 exec /usr/bin/env -i \
   HOME=/Users/andreiviarshko \
   PATH=/Users/andreiviarshko/.local/bin:/opt/homebrew/bin:/usr/bin:/bin \
   QA_ROUTER_ENABLED=1 \
-  QA_ROUTER_MODEL=gemma4:12b-it-q4_K_M \
-  QA_ROUTER_CONTEXT=64000 \
+  QA_ROUTER_MODEL="$router_model" \
+  QA_ROUTER_CONTEXT=16384 \
+  QA_ROUTER_LMSTUDIO_URL=http://127.0.0.1:1234 \
+  QA_ROUTER_TIMEOUT=90 \
+  QA_ROUTER_TTL_SECONDS=300 \
   QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
-  QA_ROUTER_HERMES=/Users/andreiviarshko/.local/bin/qa-routine \
   "$router_root/.venv/bin/qa-router-mcp"

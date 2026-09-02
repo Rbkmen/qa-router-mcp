@@ -49,12 +49,3 @@ def assert_allowed_request(kind: DraftKind, text: str) -> None:
     del kind
     if DECISION.search(text):
         raise PolicyError("codex_only_decision")
-
-
-def validate_learning_text(text: str) -> str:
-    if SECRET.search(text) or any(pattern.search(text) for pattern, _ in REPLACEMENTS):
-        raise PolicyError("learning_content_forbidden")
-    clean = text.strip()
-    if not clean or len(clean) > 2_000:
-        raise PolicyError("learning_content_forbidden")
-    return clean

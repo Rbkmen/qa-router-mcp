@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.qa-router.llmster</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/andreiviarshko/.lmstudio/bin/lms</string>
+    <string>daemon</string>
+    <string>up</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/andreiviarshko</string>
+    <key>PATH</key>
+    <string>/Users/andreiviarshko/.lmstudio/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andreiviarshko/Library/Logs/qa-router-llmster.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andreiviarshko/Library/Logs/qa-router-llmster-error.log</string>
+</dict>
+</plist>

@@ -25,6 +25,6 @@ Codex remains responsible for Jira/MR/diff analysis, CodeGraph navigation, curre
 
 Never include credentials, cookies, tokens, personal or payment data, complete repositories, or unrestricted corporate documents.
 
-## Learning
+## Persistence
 
-Never send transient task content to Hermes. Gemma handles drafts directly. Show a generic learning proposal only when useful; call `approve_learning_proposal` only after explicit user approval. Otherwise leave it pending or reject it.
+The local route is stateless at the application level. Do not create learning proposals, persistent model memory, or local copies of Jira, TestRail, source repositories, logs, or corporate documents.

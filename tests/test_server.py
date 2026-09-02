@@ -5,32 +5,27 @@ from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope
 from qa_router_mcp.server import build_server
 from qa_router_mcp.service import RouterService
-from qa_router_mcp.store import ProposalStore
 
 
 class DraftFake:
     def __init__(self):
         self.prompts = []
 
-    async def generate(self, prompt):
+    async def generate(self, prompt, *, max_output_tokens=None, allow_schema_repair=True):
         self.prompts.append(prompt)
-        return DraftEnvelope(draft="Case", unverified=["Review locally"])
-
-
-class LearningFake:
-    async def apply(self, text):
-        return "stored"
+        return DraftEnvelope(
+            draft=(
+                "Title: Case\nPreconditions: Ready\nSteps: 1. Act\n"
+                "Expected Result: Expected behavior"
+            ),
+            unverified=["Review locally"],
+        )
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_only_ten_narrow_tools(tmp_path):
+async def test_server_exposes_only_seven_drafting_tools(tmp_path):
     drafting = DraftFake()
-    service = RouterService(
-        Settings(data_dir=tmp_path),
-        drafting,
-        LearningFake(),
-        ProposalStore(tmp_path),
-    )
+    service = RouterService(Settings(data_dir=tmp_path), drafting)
 
     async with Client(build_server(service)) as client:
         names = {tool.name for tool in await client.list_tools()}
@@ -42,9 +37,6 @@ async def test_server_exposes_only_ten_narrow_tools(tmp_path):
             "rewrite_text",
             "explain_short",
             "summarize_text",
-            "list_learning_proposals",
-            "approve_learning_proposal",
-            "reject_learning_proposal",
         }
 
         result = await client.call_tool(
@@ -52,12 +44,6 @@ async def test_server_exposes_only_ten_narrow_tools(tmp_path):
             {"requirement": "Guest checkout"},
         )
         assert result.structured_content["status"] == "ok"
-
-        refusal = await client.call_tool(
-            "approve_learning_proposal",
-            {"proposal_id": "lp_missing", "user_confirmed": False},
-        )
-        assert refusal.structured_content["reason"] == "explicit_approval_required"
 
 
 @pytest.mark.asyncio
@@ -97,12 +83,7 @@ async def test_text_tools_pass_bounded_instructions_to_local_backend(
     prompt_markers,
 ):
     drafting = DraftFake()
-    service = RouterService(
-        Settings(data_dir=tmp_path),
-        drafting,
-        LearningFake(),
-        ProposalStore(tmp_path),
-    )
+    service = RouterService(Settings(data_dir=tmp_path), drafting)
 
     async with Client(build_server(service)) as client:
         result = await client.call_tool(tool_name, arguments)

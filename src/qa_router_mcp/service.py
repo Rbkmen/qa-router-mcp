@@ -1,25 +1,12 @@
 from time import monotonic
 
-from qa_router_mcp.backends import BackendError, DraftBackend, LearningBackend
+from qa_router_mcp.backends import BackendError, DraftBackend
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import (
-    DraftEnvelope,
-    DraftKind,
-    LearningEnvelope,
-    LearningProposal,
-)
+from qa_router_mcp.contracts import DraftEnvelope, DraftKind, GenerationStats
 from qa_router_mcp.events import EventSink, JsonEventSink
 from qa_router_mcp.policy import PolicyError, assert_allowed_request, sanitize_transient
 from qa_router_mcp.prompts import build_prompt
-from qa_router_mcp.store import ProposalStore
-
-QA_DRAFT_KINDS = frozenset(
-    {
-        DraftKind.TEST_CASES,
-        DraftKind.LOG_SUMMARY,
-        DraftKind.AUTOMATION_SKELETON,
-    }
-)
+from qa_router_mcp.validation import repair_instruction, validate_generated_draft
 
 
 class RouterService:
@@ -27,14 +14,10 @@ class RouterService:
         self,
         settings: Settings,
         drafting: DraftBackend,
-        learning: LearningBackend,
-        store: ProposalStore,
         events: EventSink | None = None,
     ) -> None:
         self.settings = settings
         self.drafting = drafting
-        self.learning = learning
-        self.store = store
         self.events = events or JsonEventSink()
 
     def _record(
@@ -42,12 +25,18 @@ class RouterService:
         kind: DraftKind,
         result: DraftEnvelope,
         started: float,
+        input_chars: int,
+        stats: GenerationStats | None = None,
+        validation_repair: bool = False,
     ) -> DraftEnvelope:
         self.events.emit(
             kind.value,
             result.status,
             (monotonic() - started) * 1_000,
             result.reason,
+            input_chars,
+            stats or result.generation_stats,
+            validation_repair,
         )
         return result
 
@@ -58,51 +47,84 @@ class RouterService:
         pattern: str | None = None,
     ) -> DraftEnvelope:
         started = monotonic()
+        validation_repair_attempted = False
+        packet = content if pattern is None else f"{content}\n{pattern}"
+        input_chars = len(packet)
         if not self.settings.enabled:
             result = DraftEnvelope(status="fallback", reason="local_delegation_disabled")
-            return self._record(kind, result, started)
+            return self._record(kind, result, started, input_chars)
         try:
-            packet = content if pattern is None else f"{content}\n{pattern}"
             assert_allowed_request(kind, packet)
-            if len(packet) > self.settings.max_input_chars:
+            input_limit = self.settings.input_limit(kind)
+            if input_chars > input_limit:
                 raise PolicyError("input_too_large")
-            safe_content = sanitize_transient(content, self.settings.max_input_chars)
+            safe_content = sanitize_transient(content, input_limit)
             safe_pattern = (
-                sanitize_transient(pattern, self.settings.max_input_chars) if pattern else None
+                sanitize_transient(pattern, input_limit) if pattern else None
             )
+            prompt = build_prompt(kind, safe_content, safe_pattern)
             result = await self.drafting.generate(
-                build_prompt(kind, safe_content, safe_pattern)
+                prompt,
+                max_output_tokens=self.settings.output_limit(kind),
             )
-            if kind in QA_DRAFT_KINDS and not result.unverified:
+            issues = validate_generated_draft(kind, packet, result)
+            if issues == ["truncated"]:
                 incomplete = DraftEnvelope(
-                    status="fallback",
-                    reason="ollama_invalid_schema",
+                    status="fallback", reason="local_model_truncated"
                 )
-                return self._record(kind, incomplete, started)
-            if result.learning_proposal:
+                return self._record(
+                    kind,
+                    incomplete,
+                    started,
+                    input_chars,
+                    result.generation_stats,
+                )
+            if issues:
+                initial_stats = result.generation_stats
+                validation_repair_attempted = True
                 try:
-                    self.store.add(result.learning_proposal)
-                except PolicyError:
-                    result.learning_proposal = None
-            return self._record(kind, result, started)
+                    repaired = await self.drafting.generate(
+                        f"{prompt}\n{repair_instruction(issues)}",
+                        max_output_tokens=self.settings.output_limit(kind),
+                        allow_schema_repair=False,
+                    )
+                except BackendError as exc:
+                    raise BackendError(exc.code, initial_stats.merged(exc.stats)) from exc
+                combined_stats = initial_stats.merged(repaired.generation_stats)
+                repaired.set_generation_stats(combined_stats)
+                remaining = validate_generated_draft(kind, packet, repaired)
+                if remaining:
+                    incomplete = DraftEnvelope(
+                        status="fallback",
+                        reason="local_model_invalid_draft",
+                    )
+                    return self._record(
+                        kind,
+                        incomplete,
+                        started,
+                        input_chars,
+                        combined_stats,
+                        True,
+                    )
+                return self._record(
+                    kind,
+                    repaired,
+                    started,
+                    input_chars,
+                    combined_stats,
+                    True,
+                )
+            return self._record(kind, result, started, input_chars)
         except PolicyError as exc:
             result = DraftEnvelope(status="refused", reason=exc.code)
-            return self._record(kind, result, started)
+            return self._record(kind, result, started, input_chars)
         except BackendError as exc:
             result = DraftEnvelope(status="fallback", reason=exc.code)
-            return self._record(kind, result, started)
-
-    def list_proposals(self) -> list[LearningProposal]:
-        return self.store.list_pending()
-
-    async def approve_proposal(self, proposal_id: str) -> LearningEnvelope:
-        proposal = self.store.get_pending(proposal_id)
-        try:
-            await self.learning.apply(proposal.text)
-        except BackendError as exc:
-            return LearningEnvelope(status="fallback", reason=exc.code)
-        approved = self.store.approve(proposal_id)
-        return LearningEnvelope(status="approved", proposal=approved)
-
-    def reject_proposal(self, proposal_id: str) -> bool:
-        return self.store.reject(proposal_id)
+            return self._record(
+                kind,
+                result,
+                started,
+                input_chars,
+                exc.stats,
+                validation_repair_attempted,
+            )
