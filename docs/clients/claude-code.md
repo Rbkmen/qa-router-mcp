@@ -31,4 +31,6 @@ If the project already has a `CLAUDE.md`, merge the contents instead of overwrit
 
 Claude Code has no Codex-specific Terra/Sol routing requirement. The active Claude model is the host agent; any Claude subagent is client-owned and must remain outside QA Router.
 
+The template handles stable coverage IDs, per-tool quality states, 10% independent shadow checks, content-free draft feedback, and one content-free outcome record per finished QA task.
+
 Reference: [official Claude Code MCP documentation](https://code.claude.com/docs/en/mcp).

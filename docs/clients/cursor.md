@@ -31,4 +31,6 @@ The `.mdc` template is an always-applied project rule. It adapts the shared [QA 
 
 For a personal rule across projects, add the same instructions through Cursor Settings → Rules → User Rules.
 
+The rule handles stable coverage IDs, per-tool quality states, 10% independent shadow checks, content-free draft feedback, and one content-free outcome record per finished QA task.
+
 References: [official Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol) and [official Cursor Rules documentation](https://cursor.com/docs/rules).

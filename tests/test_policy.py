@@ -61,6 +61,23 @@ def test_sensitive_log_identifiers_are_rejected_before_local_routing(raw):
 
 
 @pytest.mark.parametrize(
+    ("raw", "category"),
+    [
+        ("card_number=4111111111111111", "payment"),
+        ("player_id=123456", "pii"),
+        ("session_id=abc123", "identifier"),
+        ("client_ip=10.20.30.40", "identifier"),
+    ],
+)
+def test_sensitive_refusal_exposes_only_a_coarse_category(raw, category):
+    with pytest.raises(PolicyError) as error:
+        assert_allowed_request(DraftKind.LOG_SUMMARY, raw)
+
+    assert error.value.category == category
+    assert raw not in str(error.value)
+
+
+@pytest.mark.parametrize(
     "raw",
     [
         "player_id=[REDACTED]",

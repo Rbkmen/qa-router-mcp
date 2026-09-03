@@ -1,5 +1,6 @@
 import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope
@@ -18,7 +19,8 @@ class DraftFake:
         self.prompts.append(prompt)
         return DraftEnvelope(
             draft=(
-                "Title: Case\nPreconditions: Ready\nSteps: 1. Act\n"
+                "Coverage ID: COV-GUEST-HAPPY\nTitle: Case\n"
+                "Preconditions: Ready\nSteps: 1. Act\n"
                 "Expected Result: Expected behavior"
             ),
             unverified=["Review locally"],
@@ -48,12 +50,22 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
             "draft_test_cases",
             {
                 "requirement": "Guest checkout",
-                "coverage_map": ["Happy path from confirmed requirement"],
+                "coverage_map": [
+                    {
+                        "coverage_id": "COV-GUEST-HAPPY",
+                        "purpose": "Happy path",
+                        "source": "Confirmed requirement",
+                        "state": "Guest checkout",
+                        "expected_invariant": "Checkout is submitted",
+                    }
+                ],
             },
         )
         assert result.structured_content["status"] == "ok"
         assert "APPROVED_COVERAGE_MAP" in drafting.prompts[0]
-        assert "1. Happy path from confirmed requirement" in drafting.prompts[0]
+        assert "Coverage ID: COV-GUEST-HAPPY" in drafting.prompts[0]
+        assert "Expected invariant: Checkout is submitted" in drafting.prompts[0]
+        assert result.structured_content["quality_status"] == "canary"
 
         feedback = await client.call_tool(
             "record_canary_feedback",
@@ -132,3 +144,23 @@ async def test_text_tools_pass_bounded_instructions_to_local_backend(
 
     assert result.structured_content["status"] == "ok"
     assert all(marker in drafting.prompts[0] for marker in prompt_markers)
+
+
+@pytest.mark.asyncio
+async def test_test_case_tool_rejects_duplicate_coverage_ids(tmp_path):
+    drafting = DraftFake()
+    service = RouterService(Settings(data_dir=tmp_path), drafting)
+    item = {
+        "coverage_id": "COV-DUPLICATE",
+        "purpose": "Branch",
+        "source": "Confirmed requirement",
+        "state": "Ready",
+        "expected_invariant": "Stable result",
+    }
+
+    async with Client(build_server(service)) as client:
+        with pytest.raises(ToolError, match="coverage IDs must be unique"):
+            await client.call_tool(
+                "draft_test_cases",
+                {"requirement": "Requirement", "coverage_map": [item, item]},
+            )

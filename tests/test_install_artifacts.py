@@ -10,14 +10,39 @@ ROOT = Path(__file__).parents[1]
 LAUNCHER = ROOT / "scripts/qa-router-mcp"
 
 CLIENT_ARTIFACTS = {
-    "docs/ROUTING_POLICY.md": ["host agent", "record_canary_feedback"],
+    "docs/ROUTING_POLICY.md": [
+        "host agent",
+        "record_canary_feedback",
+        "record_qa_task_outcome",
+        "shadow_evaluation_required",
+    ],
     "docs/clients/codex.md": ["codex mcp add", "qa-local-routing"],
     "docs/clients/claude-code.md": ["claude mcp add", "CLAUDE.md"],
     "docs/clients/cursor.md": [".cursor/mcp.json", "qa-router.mdc"],
     "docs/clients/generic-mcp.md": ["STDIO", "mcpServers"],
-    "client-rules/claude-code/CLAUDE.md": ["QA Router", "unverified draft"],
-    "client-rules/cursor/qa-router.mdc": ["alwaysApply: true", "QA Router"],
-    "client-rules/generic/QA_ROUTER_INSTRUCTIONS.md": ["QA Router", "host agent"],
+    "client-rules/claude-code/CLAUDE.md": [
+        "QA Router",
+        "unverified draft",
+        "record_qa_task_outcome",
+        "shadow_evaluation_required",
+    ],
+    "client-rules/cursor/qa-router.mdc": [
+        "alwaysApply: true",
+        "QA Router",
+        "record_qa_task_outcome",
+        "shadow_evaluation_required",
+    ],
+    "client-rules/generic/QA_ROUTER_INSTRUCTIONS.md": [
+        "QA Router",
+        "host agent",
+        "record_qa_task_outcome",
+        "shadow_evaluation_required",
+    ],
+    "codex/skills/qa-local-routing/SKILL.md": [
+        "record_qa_task_outcome",
+        "shadow_evaluation_required",
+        "coverage_id",
+    ],
 }
 
 

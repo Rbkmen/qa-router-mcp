@@ -10,6 +10,7 @@ from re import fullmatch
 from typing import IO, Protocol
 
 from qa_router_mcp.contracts import CanaryFeedbackReceipt, GenerationStats, QaTaskOutcomeReceipt
+from qa_router_mcp.quality import QualityGate, assess_quality
 
 CANARY_TOOL_TARGETS = {
     "test_cases": 15,
@@ -19,6 +20,7 @@ CANARY_TOOL_TARGETS = {
     "rewrite": 3,
     "translation": 2,
 }
+REVIEWABLE_TOOLS = {*CANARY_TOOL_TARGETS, "short_explanation"}
 CANARY_TARGET = sum(CANARY_TOOL_TARGETS.values())
 CANARY_VERDICTS = {"accepted", "edited", "rejected"}
 CANARY_REASONS = {"none", "factual", "coverage", "format", "too_verbose", "other"}
@@ -60,6 +62,14 @@ class EventSink(Protocol):
         estimated_prompt_tokens: int = 0,
         context_tokens: int = 0,
         draft_id: str | None = None,
+        quality_status: str = "canary",
+        shadow_evaluation_required: bool = False,
+        tokenization_ms: float = 0,
+        model_load_ms: float = 0,
+        generation_ms: float = 0,
+        validation_ms: float = 0,
+        repair_ms: float = 0,
+        cold_start_likely: bool = False,
     ) -> str | None: ...
 
     def record_feedback(
@@ -70,6 +80,8 @@ class EventSink(Protocol):
     ) -> CanaryFeedbackReceipt: ...
 
     def record_qa_task_outcome(self, event: dict[str, object]) -> QaTaskOutcomeReceipt: ...
+
+    def quality_gate(self, tool: str, profile_version: str) -> QualityGate: ...
 
 
 class JsonEventSink:
@@ -92,10 +104,18 @@ class JsonEventSink:
         estimated_prompt_tokens: int = 0,
         context_tokens: int = 0,
         draft_id: str | None = None,
+        quality_status: str = "canary",
+        shadow_evaluation_required: bool = False,
+        tokenization_ms: float = 0,
+        model_load_ms: float = 0,
+        generation_ms: float = 0,
+        validation_ms: float = 0,
+        repair_ms: float = 0,
+        cold_start_likely: bool = False,
     ) -> str | None:
         usage = stats or GenerationStats()
         event: dict[str, object] = {
-            "schema_version": 2,
+            "schema_version": 7,
             "timestamp": datetime.now(UTC).isoformat(),
             "tool": tool,
             "model": model,
@@ -113,6 +133,14 @@ class JsonEventSink:
             "requests": usage.requests,
             "truncated": usage.truncated,
             "validation_repair": validation_repair,
+            "quality_status": quality_status,
+            "shadow_evaluation_required": shadow_evaluation_required,
+            "tokenization_ms": round(tokenization_ms, 2),
+            "model_load_ms": round(model_load_ms, 2),
+            "generation_ms": round(generation_ms, 2),
+            "validation_ms": round(validation_ms, 2),
+            "repair_ms": round(repair_ms, 2),
+            "cold_start_likely": cold_start_likely,
         }
         if draft_id is None:
             self._write(event)
@@ -142,7 +170,11 @@ class JsonEventSink:
                     return self._receipt("duplicate", len(feedback))
                 tool = str(draft["tool"])
                 progress = Counter(str(event["tool"]) for event in feedback)
-                if progress[tool] >= CANARY_TOOL_TARGETS[tool]:
+                shadow_sample = draft.get("shadow_evaluation_required") is True
+                if not shadow_sample and (
+                    tool not in CANARY_TOOL_TARGETS
+                    or progress[tool] >= CANARY_TOOL_TARGETS[tool]
+                ):
                     return self._receipt("complete", len(feedback))
                 event = {
                     "schema_version": 4,
@@ -171,6 +203,16 @@ class JsonEventSink:
             "timestamp": datetime.now(UTC).isoformat(),
         }
         return QaTaskOutcomeReceipt(status="recorded" if self._write(payload) else "unavailable")
+
+    def quality_gate(self, tool: str, profile_version: str) -> QualityGate:
+        if self.path is None or not self.path.exists():
+            return assess_quality(tool, [])
+        try:
+            with self.path.open(encoding="utf-8") as metrics:
+                events = _parse_events(metrics)
+        except OSError:
+            return assess_quality(tool, [])
+        return assess_quality(tool, validated_canary_feedback(events, profile_version))
 
     @staticmethod
     def _receipt(status: str, feedback_count: int) -> CanaryFeedbackReceipt:
@@ -229,11 +271,14 @@ class JsonEventSink:
                     str(draft["tool"])
                     for draft in _issued_canary_drafts(events, profile_version).values()
                 )
-                if tool not in CANARY_TOOL_TARGETS or issued[tool] >= CANARY_TOOL_TARGETS[tool]:
+                shadow_sample = event.get("shadow_evaluation_required") is True
+                if not shadow_sample and (
+                    tool not in CANARY_TOOL_TARGETS
+                    or issued[tool] >= CANARY_TOOL_TARGETS[tool]
+                ):
                     self._append_locked(metrics, event)
                     print(_serialize(event), file=sys.stderr, flush=True)
                     return None
-                event["schema_version"] = 4
                 event["draft_id"] = draft_id
                 self._append_locked(metrics, event)
                 print(_serialize(event), file=sys.stderr, flush=True)
@@ -289,7 +334,7 @@ def _issued_canary_drafts(
             isinstance(draft_id, str)
             and fullmatch(r"[0-9a-f]{32}", draft_id)
             and isinstance(tool, str)
-            and tool in CANARY_TOOL_TARGETS
+            and tool in REVIEWABLE_TOOLS
             and event.get("outcome") == "ok"
             and event.get("source") == "interactive"
             and isinstance(event.get("profile_version"), str)

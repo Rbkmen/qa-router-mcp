@@ -80,6 +80,70 @@ def test_weekly_report_aggregates_metadata_only():
     assert report["by_profile"]["legacy"] == report["by_source"]["legacy"]
 
 
+def test_weekly_report_aggregates_phase_latency_shadow_and_quality_status():
+    timestamp = datetime.now(UTC).isoformat()
+    lines = [
+        json.dumps(
+            {
+                "schema_version": 7,
+                "timestamp": timestamp,
+                "tool": "test_cases",
+                "outcome": "ok",
+                "model": "qwen/qwen3.5-9b",
+                "profile_version": "router-v10",
+                "source": "interactive",
+                "duration_ms": 40.0,
+                "model_load_ms": 10.0,
+                "tokenization_ms": 5.0,
+                "generation_ms": 30.0,
+                "validation_ms": 2.0,
+                "repair_ms": 0.0,
+                "cold_start_likely": True,
+                "quality_status": "canary",
+                "shadow_evaluation_required": True,
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 7,
+                "timestamp": timestamp,
+                "tool": "translation",
+                "outcome": "ok",
+                "model": "qwen/qwen3.5-9b",
+                "profile_version": "router-v10",
+                "source": "interactive",
+                "duration_ms": 20.0,
+                "model_load_ms": 0.0,
+                "tokenization_ms": 1.0,
+                "generation_ms": 15.0,
+                "validation_ms": 1.0,
+                "repair_ms": 0.0,
+                "cold_start_likely": False,
+                "quality_status": "active",
+                "shadow_evaluation_required": False,
+            }
+        ),
+    ]
+
+    report = summarize_events(lines)
+
+    assert report["phase_latency_ms"] == {
+        "model_load_p50": 0.0,
+        "model_load_p95": 10.0,
+        "tokenization_p50": 1.0,
+        "tokenization_p95": 5.0,
+        "generation_p50": 15.0,
+        "generation_p95": 30.0,
+        "validation_p50": 1.0,
+        "validation_p95": 2.0,
+        "repair_p50": 0.0,
+        "repair_p95": 0.0,
+    }
+    assert report["cold_start_likely"] == {"false": 1, "true": 1}
+    assert report["shadow_evaluations"] == {"requested": 1, "rate": 0.5}
+    assert report["quality_statuses"] == {"active": 1, "canary": 1}
+
+
 def test_weekly_report_separates_canary_feedback_from_generation_events():
     timestamp = datetime.now(UTC).isoformat()
     lines = [

@@ -113,6 +113,26 @@ def test_extra_test_case_is_rejected():
     ) == ["test_cases_wrong_count"]
 
 
+def test_test_cases_require_exact_coverage_id_bijection():
+    result = DraftEnvelope(
+        draft=(
+            "Coverage ID: COV-A\nTitle: A\nPreconditions: Ready\nSteps: 1. Act\n"
+            "Expected Result: A\n\nCoverage ID: COV-A\nTitle: B\nPreconditions: Ready\n"
+            "Steps: 1. Act\nExpected Result: B"
+        ),
+        unverified=[],
+    )
+    request = (
+        "Draft exactly 2 test cases.\nAPPROVED_COVERAGE_MAP:\n"
+        "Coverage ID: COV-A\nPurpose: A\n\nCoverage ID: COV-B\nPurpose: B"
+    )
+
+    assert validate_generated_draft(DraftKind.TEST_CASES, request, result) == [
+        "test_cases_duplicate_coverage_id",
+        "test_cases_missing_coverage_id",
+    ]
+
+
 def test_markdown_test_case_heading_without_colon_counts_as_title():
     result = DraftEnvelope(
         draft=("## Test Case 1\nPreconditions: Ready\nSteps: 1. Act\nExpected Result: Success"),

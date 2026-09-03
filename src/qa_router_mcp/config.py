@@ -46,7 +46,7 @@ class Settings:
     ttl_seconds: int = 300
     context_reserve_tokens: int = 512
     metrics_source: str = "interactive"
-    profile_version: str = "router-v9"
+    profile_version: str = "router-v10"
     data_dir: Path = Path.home() / ".qa-router"
 
     def input_limit(self, kind: DraftKind) -> int:

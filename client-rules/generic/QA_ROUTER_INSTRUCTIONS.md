@@ -8,4 +8,8 @@ Use the `qa-router` MCP server only for bounded, sanitized routine drafts.
 - Treat every local result as an unverified draft. Validate it against authoritative evidence before returning a final result.
 - If the router refuses or falls back, continue in the host agent without weakening policy checks or retrying in a loop.
 - If `canary_feedback_required` is true, call `record_canary_feedback` exactly once after reviewing the returned draft.
+- For test cases, send unique stable `COV-*` coverage IDs with purpose, source, state, and expected invariant; require every ID exactly once in the result.
+- Respect `quality_status`: use `active`, review `canary`, and continue in the host agent when `paused`.
+- If `shadow_evaluation_required` is true, create an independent host-agent baseline from the same sanitized packet before using the Qwen draft, compare them, then record feedback. The router never calls the host model itself.
+- After every completed, partial, or blocked QA task, call `record_qa_task_outcome` exactly once with content-free counters only.
 - Do not create persistent QA memory or a learning layer around the router.

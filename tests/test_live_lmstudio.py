@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import string
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +11,7 @@ from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftKind
 from qa_router_mcp.service import RouterService
+from qa_router_mcp.validation import validate_generated_draft
 
 
 @pytest.mark.skipif(
@@ -33,9 +35,12 @@ async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path
             "REQUIREMENT:\n"
             "A guest checkout form accepts a valid card and rejects an expired card.\n"
             "APPROVED_COVERAGE_MAP:\n"
-            "1. Submit a valid card; verify checkout succeeds.\n"
-            "2. Submit an expired card; verify validation prevents checkout.\n"
-            "3. Replace an expired card with a valid card; verify checkout succeeds."
+            "Coverage ID: COV-VALID\nPurpose: Valid card\n"
+            "Expected invariant: Checkout succeeds.\n"
+            "Coverage ID: COV-EXPIRED\nPurpose: Expired card\n"
+            "Expected invariant: Validation prevents checkout.\n"
+            "Coverage ID: COV-REPLACE\nPurpose: Replace expired card\n"
+            "Expected invariant: Checkout succeeds."
         ),
     )
     refusal = await service.draft(
@@ -46,9 +51,12 @@ async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path
     context_refusal = await service.draft(DraftKind.TEST_CASES, dense_ascii)
 
     assert draft.status == "ok"
-    assert draft.draft.count("Title:") >= 3
-    assert "Steps:" in draft.draft
-    assert "Expected Result:" in draft.draft
+    assert validate_generated_draft(DraftKind.TEST_CASES, "Draft 3 test cases", draft) == []
+    assert sorted(re.findall(r"Coverage ID: (COV-[A-Z]+)", draft.draft)) == [
+        "COV-EXPIRED",
+        "COV-REPLACE",
+        "COV-VALID",
+    ]
     assert isinstance(draft.unverified, list)
     assert refusal.status == "refused"
     assert refusal.reason == "secret_detected"

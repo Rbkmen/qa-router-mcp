@@ -59,6 +59,7 @@ async def test_policy_failure_returns_refusal_without_backend_call(tmp_path):
 
     assert result.status == "refused"
     assert result.reason == "secret_detected"
+    assert result.sensitive_category == "possible_secret"
     assert drafting.prompts == []
     assert drafting.token_prompts == []
 
@@ -139,18 +140,20 @@ async def test_tokenizer_failure_falls_back_before_generation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path):
+async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path, monkeypatch):
     drafting = DraftFake(DraftEnvelope(draft="Translated", unverified=[]))
     service = RouterService(Settings(data_dir=tmp_path), drafting)
+    monkeypatch.setattr("qa_router_mcp.service.is_shadow_sample", lambda _: False)
 
     result = await service.draft(DraftKind.TRANSLATION, "Translate: hello")
 
     assert result.status == "ok"
-    assert result.canary_feedback_required is True
-    assert result.draft_id is not None
+    assert result.quality_status == "active"
+    assert result.canary_feedback_required is False
+    assert result.draft_id is None
     event = (tmp_path / "metrics.jsonl").read_text()
     assert '"source":"interactive"' in event
-    assert f'"draft_id":"{result.draft_id}"' in event
+    assert '"quality_status":"active"' in event
 
 
 def test_qa_task_event_cannot_override_envelope_fields(tmp_path):
@@ -185,6 +188,101 @@ async def test_benchmark_draft_does_not_request_canary_feedback(tmp_path):
     assert result.status == "ok"
     assert result.canary_feedback_required is False
     assert result.draft_id is None
+
+
+@pytest.mark.asyncio
+async def test_paused_quality_gate_falls_back_before_tokenization(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    drafting = DraftFake(DraftEnvelope(draft="unused", unverified=[]))
+    service = RouterService(Settings(data_dir=tmp_path), drafting, JsonEventSink(path))
+    events = []
+    for index in range(10):
+        draft_id = f"{index + 1:032x}"
+        events.extend(
+            [
+                {
+                    "schema_version": 4,
+                    "timestamp": "2026-09-03T00:00:00+00:00",
+                    "tool": "test_cases",
+                    "model": "qwen/qwen3.5-9b",
+                    "profile_version": "router-v10",
+                    "source": "interactive",
+                    "outcome": "ok",
+                    "draft_id": draft_id,
+                },
+                {
+                    "schema_version": 4,
+                    "event_type": "canary_feedback",
+                    "timestamp": "2026-09-03T00:00:01+00:00",
+                    "tool": "test_cases",
+                    "draft_id": draft_id,
+                    "profile_version": "router-v10",
+                    "source": "interactive",
+                    "verdict": "edited" if index < 2 else "accepted",
+                    "reason": "coverage" if index < 2 else "none",
+                },
+            ]
+        )
+    path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
+
+    result = await service.draft(DraftKind.TEST_CASES, "Draft one test case")
+
+    assert result.status == "fallback"
+    assert result.reason == "quality_gate_paused"
+    assert result.quality_status == "paused"
+    assert drafting.token_prompts == []
+    assert drafting.prompts == []
+
+
+@pytest.mark.asyncio
+async def test_generation_event_records_phase_timings_and_cold_start_hint(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    drafting = DraftFake(
+        DraftEnvelope(draft="Translated", unverified=[]),
+        DraftEnvelope(draft="Translated", unverified=[]),
+    )
+    service = RouterService(Settings(data_dir=tmp_path), drafting, JsonEventSink(path))
+
+    first = await service.draft(DraftKind.TRANSLATION, "Translate: hello")
+    second = await service.draft(DraftKind.TRANSLATION, "Translate: goodbye")
+
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    assert first.cold_start_likely is True
+    assert second.cold_start_likely is False
+    assert all(event["tokenization_ms"] >= 0 for event in events)
+    assert all(event["model_load_ms"] >= 0 for event in events)
+    assert all(event["generation_ms"] >= 0 for event in events)
+    assert all(event["validation_ms"] >= 0 for event in events)
+    assert all(event["repair_ms"] >= 0 for event in events)
+    assert all(event["duration_ms"] >= event["generation_ms"] for event in events)
+
+
+@pytest.mark.asyncio
+async def test_active_route_requests_feedback_only_for_shadow_sample(tmp_path, monkeypatch):
+    drafting = DraftFake(DraftEnvelope(draft="Translated", unverified=[]))
+    service = RouterService(Settings(data_dir=tmp_path), drafting)
+    monkeypatch.setattr("qa_router_mcp.service.is_shadow_sample", lambda _: True)
+
+    result = await service.draft(DraftKind.TRANSLATION, "Translate: hello")
+
+    assert result.quality_status == "active"
+    assert result.shadow_evaluation_required is True
+    assert result.canary_feedback_required is True
+    assert result.draft_id is not None
+
+
+@pytest.mark.asyncio
+async def test_short_explanation_shadow_sample_can_record_feedback(tmp_path, monkeypatch):
+    drafting = DraftFake(DraftEnvelope(draft="Retries repeat a failed operation.", unverified=[]))
+    service = RouterService(Settings(data_dir=tmp_path), drafting)
+    monkeypatch.setattr("qa_router_mcp.service.is_shadow_sample", lambda _: True)
+
+    result = await service.draft(DraftKind.SHORT_EXPLANATION, "Explain retries")
+    receipt = service.record_canary_feedback(result.draft_id, "accepted", "none")
+
+    assert result.shadow_evaluation_required is True
+    assert result.draft_id is not None
+    assert receipt.status == "recorded"
 
 
 @pytest.mark.asyncio
@@ -330,7 +428,7 @@ def test_event_sink_logs_usage_without_content(capsys, tmp_path):
     )
 
     event = __import__("json").loads(path.read_text())
-    assert event["schema_version"] == 2
+    assert event["schema_version"] == 7
     assert event["model"] == "qwen/qwen3.5-9b"
     assert event["profile_version"] == "router-v2"
     assert event["source"] == "benchmark"
@@ -604,6 +702,43 @@ def test_canary_completes_only_after_every_tool_quota(tmp_path):
             )
             is None
         )
+
+
+def test_shadow_feedback_is_recorded_after_canary_quota(tmp_path):
+    from qa_router_mcp.events import CANARY_TOOL_TARGETS
+
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+    for index in range(CANARY_TOOL_TARGETS["translation"]):
+        draft_id = f"{index + 1:032x}"
+        sink.emit(
+            "translation",
+            "ok",
+            1.0,
+            None,
+            profile_version="router-v10",
+            source="interactive",
+            draft_id=draft_id,
+        )
+        sink.record_feedback(draft_id, "accepted", "none")
+
+    shadow_id = "f" * 32
+    issued = sink.emit(
+        "translation",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v10",
+        source="interactive",
+        draft_id=shadow_id,
+        quality_status="active",
+        shadow_evaluation_required=True,
+    )
+    receipt = sink.record_feedback(shadow_id, "edited", "format")
+
+    assert issued == shadow_id
+    assert receipt.status == "recorded"
+    assert receipt.feedback_count == 3
 
 
 def test_service_records_feedback_by_draft_id(tmp_path):

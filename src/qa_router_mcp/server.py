@@ -6,6 +6,7 @@ from qa_router_mcp.contracts import (
     CanaryFeedbackReceipt,
     CanaryReason,
     CanaryVerdict,
+    CoverageItem,
     DraftEnvelope,
     DraftKind,
     QaTaskOutcome,
@@ -22,13 +23,39 @@ def build_server(service: RouterService) -> FastMCP:
     @mcp.tool
     async def draft_test_cases(
         requirement: str,
-        coverage_map: list[str],
+        coverage_map: list[CoverageItem | str],
         examples: str = "",
     ) -> DraftEnvelope:
-        """Expand an approved coverage map into focused unverified test-case drafts."""
-        if not 1 <= len(coverage_map) <= 12 or any(not item.strip() for item in coverage_map):
+        """Expand 1-12 approved coverage items with stable COV-* IDs into test-case drafts."""
+        if not 1 <= len(coverage_map) <= 12:
             raise ValueError("coverage_map must contain 1-12 non-empty items")
-        coverage = "\n".join(f"{index}. {item}" for index, item in enumerate(coverage_map, 1))
+        normalized = [
+            item
+            if isinstance(item, CoverageItem)
+            else CoverageItem(
+                coverage_id=f"COV-{index:02d}",
+                purpose=item,
+                source="legacy supplied coverage item",
+                state="legacy supplied coverage item",
+                expected_invariant=item,
+            )
+            for index, item in enumerate(coverage_map, 1)
+        ]
+        coverage_ids = [item.coverage_id for item in normalized]
+        if len(coverage_ids) != len(set(coverage_ids)):
+            raise ValueError("coverage IDs must be unique")
+        coverage = "\n\n".join(
+            "\n".join(
+                (
+                    f"Coverage ID: {item.coverage_id}",
+                    f"Purpose: {item.purpose}",
+                    f"Source: {item.source}",
+                    f"State: {item.state}",
+                    f"Expected invariant: {item.expected_invariant}",
+                )
+            )
+            for item in normalized
+        )
         content = (
             f"Draft exactly {len(coverage_map)} test cases.\n"
             f"REQUIREMENT:\n{requirement}\nAPPROVED_COVERAGE_MAP:\n{coverage}"

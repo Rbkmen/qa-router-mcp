@@ -32,3 +32,4 @@ After configuration:
 2. Call `explain_short` only as an explicit smoke test with non-sensitive text.
 3. Confirm that the result is shown as an unverified draft.
 4. Confirm that the host agent reviews the draft before returning a final answer.
+5. Confirm that the client respects `quality_status`, handles requested shadow evaluation independently, and records one content-free outcome when a QA task ends.

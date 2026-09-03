@@ -1,13 +1,14 @@
 import re
 
-from qa_router_mcp.contracts import DraftKind
+from qa_router_mcp.contracts import DraftKind, SensitiveCategory
 from qa_router_mcp.validation import requested_case_count
 
 
 class PolicyError(ValueError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, category: SensitiveCategory | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.category = category
 
 
 SECRET = re.compile(
@@ -20,7 +21,7 @@ DECISION = re.compile(
 )
 SENSITIVE_FIELD = re.compile(
     r"(?ix)(?<!\w)[\"']?"
-    r"(?:player[_-]?id|user[_-]?id|customer[_-]?id|account[_-]?id|session[_-]?id|"
+    r"(?P<field>player[_-]?id|user[_-]?id|customer[_-]?id|account[_-]?id|session[_-]?id|"
     r"client[_-]?ip|ip[_-]?address|phone|card[_-]?number|pan|iban)"
     r"[\"']?\s*[:=]\s*(?P<value>\"[^\"]*\"|'[^']*'|[^\s,}]+)"
 )
@@ -52,7 +53,7 @@ def sanitize_transient(text: str, limit: int) -> str:
     if len(text) > limit:
         raise PolicyError("input_too_large")
     if SECRET.search(text):
-        raise PolicyError("secret_detected")
+        raise PolicyError("secret_detected", "possible_secret")
     clean = text
     for pattern, replacement in REPLACEMENTS:
         clean = pattern.sub(replacement, clean)
@@ -60,18 +61,26 @@ def sanitize_transient(text: str, limit: int) -> str:
 
 
 def assert_allowed_request(kind: DraftKind, text: str) -> None:
-    if _contains_sensitive_data(text):
-        raise PolicyError("sensitive_data_detected")
+    sensitive_category = _sensitive_category(text)
+    if sensitive_category is not None:
+        raise PolicyError("sensitive_data_detected", sensitive_category)
     if DECISION.search(text):
         raise PolicyError("codex_only_decision")
     if kind == DraftKind.TEST_CASES and requested_case_count(text) > MAX_LOCAL_TEST_CASES:
         raise PolicyError("requested_case_count_too_large")
 
 
-def _contains_sensitive_data(text: str) -> bool:
+def _sensitive_category(text: str) -> SensitiveCategory | None:
     for match in SENSITIVE_FIELD.finditer(text):
         value = match.group("value").strip("\"'").strip()
         normalized = value.strip("[]").lower()
         if normalized not in SAFE_PLACEHOLDERS and set(value) != {"*"}:
-            return True
-    return IPV4.search(text) is not None or UUID.search(text) is not None
+            field = match.group("field").lower().replace("-", "_")
+            if field in {"card_number", "pan", "iban"}:
+                return "payment"
+            if field in {"phone", "player_id", "user_id", "customer_id", "account_id"}:
+                return "pii"
+            return "identifier"
+    if IPV4.search(text) is not None or UUID.search(text) is not None:
+        return "identifier"
+    return None

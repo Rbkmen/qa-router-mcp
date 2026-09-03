@@ -14,6 +14,7 @@ CASE_HEADING = re.compile(
     r"(?im)^\s*(?:[-*#]+\s*)?(?:test case(?:\s+\d+)?|"
     r"тест[- ]?кейс(?:\s+\d+)?)\s*\**\s*(?:[:—-]|$)"
 )
+COVERAGE_ID = re.compile(r"(?im)^\s*coverage id\s*:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,63})\s*$")
 COUNT_WORDS = {
     "two": 2,
     "three": 3,
@@ -73,6 +74,15 @@ def validate_generated_draft(
 
     issues: list[str] = []
     if kind == DraftKind.TEST_CASES:
+        expected_ids = COVERAGE_ID.findall(request_text)
+        if expected_ids:
+            actual_ids = COVERAGE_ID.findall(result.draft)
+            if len(actual_ids) != len(set(actual_ids)):
+                issues.append("test_cases_duplicate_coverage_id")
+            if set(actual_ids) - set(expected_ids):
+                issues.append("test_cases_unexpected_coverage_id")
+            if set(expected_ids) - set(actual_ids):
+                issues.append("test_cases_missing_coverage_id")
         expected = requested_case_count(request_text)
         title_fields = list(FIELD_PATTERNS["title"].finditer(result.draft))
         case_headings = list(CASE_HEADING.finditer(result.draft))
@@ -136,6 +146,9 @@ def repair_instruction(issues: list[str]) -> str:
         "test_cases_missing_preconditions": "include Preconditions in every test case",
         "test_cases_missing_steps": "include Steps in every test case",
         "test_cases_missing_expected_result": ("include Expected Result in every test case"),
+        "test_cases_duplicate_coverage_id": "return every supplied Coverage ID exactly once",
+        "test_cases_unexpected_coverage_id": "remove Coverage IDs not supplied in the input",
+        "test_cases_missing_coverage_id": "include every supplied Coverage ID exactly once",
         "short_explanation_too_long": "keep the explanation at or below 120 words",
         "automation_external_write": "remove every external write operation",
     }

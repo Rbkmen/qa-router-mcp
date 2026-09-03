@@ -28,6 +28,9 @@ async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
     monkeypatch.setattr(backends_module.lms, "Chat", FakeChat)
 
     class FakeLlmNamespace:
+        def list_loaded(self):
+            return []
+
         def model(self, model, *, ttl):
             calls.update(model=model, ttl=ttl)
             return FakeModel()
@@ -44,7 +47,10 @@ async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
     backend = LMStudioDraftBackend(Settings())
     token_count = await backend.count_tokens("source prompt")
 
-    assert token_count == 321
+    assert token_count.tokens == 321
+    assert token_count.cold_start is True
+    assert token_count.model_load_ms >= 0
+    assert token_count.tokenization_ms >= 0
     assert calls == {
         "model": "qwen/qwen3.5-9b",
         "ttl": 300,

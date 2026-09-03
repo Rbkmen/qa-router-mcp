@@ -1,5 +1,6 @@
 import asyncio
 from functools import lru_cache
+from time import monotonic
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -8,7 +9,7 @@ import lmstudio as lms
 from pydantic import ValidationError
 
 from qa_router_mcp.config import Settings
-from qa_router_mcp.contracts import DraftEnvelope, GenerationStats
+from qa_router_mcp.contracts import DraftEnvelope, GenerationStats, TokenCount
 
 
 @lru_cache(maxsize=2)
@@ -24,7 +25,7 @@ class BackendError(RuntimeError):
 
 
 class DraftBackend(Protocol):
-    async def count_tokens(self, prompt: str) -> int: ...
+    async def count_tokens(self, prompt: str) -> int | TokenCount: ...
 
     async def generate(
         self,
@@ -41,18 +42,31 @@ class LMStudioDraftBackend:
         self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
         self._gate = asyncio.Semaphore(settings.max_parallel)
 
-    def _count_tokens_sync(self, prompt: str) -> int:
+    def _count_tokens_sync(self, prompt: str) -> TokenCount:
         api_host = urlsplit(self.settings.lmstudio_url).netloc
         client = _lmstudio_client(api_host)
+        cold_start = not any(
+            getattr(model, "identifier", None) == self.settings.model
+            for model in client.llm.list_loaded()
+        )
+        load_started = monotonic()
         model = client.llm.model(
             self.settings.model,
             ttl=self.settings.ttl_seconds,
         )
+        model_load_ms = (monotonic() - load_started) * 1_000 if cold_start else 0.0
+        tokenization_started = monotonic()
         chat = lms.Chat.from_history({"messages": [{"role": "user", "content": prompt}]})
         formatted_prompt = model.apply_prompt_template(chat)
-        return len(model.tokenize(formatted_prompt))
+        tokens = len(model.tokenize(formatted_prompt))
+        return TokenCount(
+            tokens=tokens,
+            model_load_ms=model_load_ms,
+            tokenization_ms=(monotonic() - tokenization_started) * 1_000,
+            cold_start=cold_start,
+        )
 
-    async def count_tokens(self, prompt: str) -> int:
+    async def count_tokens(self, prompt: str) -> TokenCount:
         try:
             return await asyncio.to_thread(self._count_tokens_sync, prompt)
         except Exception as exc:

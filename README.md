@@ -29,7 +29,7 @@ All clients share one authoritative [routing policy](docs/ROUTING_POLICY.md). Cl
 
 | Tool | Purpose | Input limit | Maximum output |
 |---|---|---:|---:|
-| `draft_test_cases` | Expand a host-agent-approved coverage map into test-case prose | 20,000 chars | 3,072 tokens |
+| `draft_test_cases` | Expand a host-agent-approved coverage map with stable `COV-*` IDs into test-case prose | 20,000 chars | 3,072 tokens |
 | `summarize_logs` | Group visible log signatures without inventing root causes | 40,000 chars | 1,536 tokens |
 | `draft_automation_skeleton` | Draft a non-writing skeleton from an explicit project pattern | 20,000 chars | 3,072 tokens |
 | `translate_text` | Translate sanitized text while preserving terminology | 12,000 chars | 1,536 tokens |
@@ -50,6 +50,7 @@ Smaller tasks stay in the host agent. `explain_short` is local only when explici
 ## Safety boundaries
 
 - Secrets and indicators of PII or payment data are rejected.
+- Sensitive refusals expose only a coarse category and never echo the matched value.
 - Issue keys, URLs, email addresses, commit hashes, branches, and local paths are replaced before a local request.
 - The full sanitized prompt is tokenized with the selected local model before generation.
 - Prompt tokens, adaptive output budget, and a 512-token reserve must fit the verified 16K context.
@@ -147,13 +148,17 @@ The model, context, loopback endpoint, and single-generation parallelism are pin
 - Transport failures are retried once.
 - Invalid JSON receives at most one schema-repair attempt.
 - Incomplete QA drafts receive at most one semantic-repair attempt.
-- Test-case output must match the requested coverage-map length and required fields.
+- Test-case output must match the requested coverage-map length, required fields, and exact one-to-one set of stable coverage IDs.
 - Automation skeletons are rejected if they contain explicit external writes.
 - Policy, context-budget, tokenizer, transport, truncation, schema, and validation failures return control to the host agent.
 
 ## Metrics
 
 Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Prompt text, generated drafts, issue keys, code, logs, and paths are not recorded.
+
+The router records model loading, tokenization, generation, validation, repair, and total latency separately. For LM Studio, `cold_start_likely` is based on the loaded-model list immediately before acquisition; `model_load_ms` measures that cold acquisition. Alternate test backends fall back to a process-local idle-time heuristic.
+
+Each tool has an automatic `active`, `canary`, or `paused` quality state based on its latest reviewed drafts. A deterministic 10% shadow sample asks the host agent to create an independent baseline; QA Router never triggers a hidden cloud call. Host instructions also record one content-free QA task outcome so Qwen use, edits, source calls, CodeGraph calls, findings, and repeated reads can be evaluated after enough real work.
 
 Generate a seven-day report:
 

@@ -40,11 +40,11 @@ Never send:
 - raw external-system payloads;
 - raw QA logs before reduction and sanitization.
 
-If the router returns `sensitive_data_detected`, reduce and sanitize the packet. Never weaken or bypass the policy check.
+If the router returns `sensitive_data_detected`, use only its coarse `sensitive_category` diagnostic to reduce and sanitize the packet. The matching value is never returned or logged. Never weaken or bypass the policy check.
 
 ## Tool selection
 
-- `draft_test_cases`: expand an approved 1–12 item coverage map. Each item must contain one purpose, confirmed source, state or branch, and expected invariant.
+- `draft_test_cases`: expand an approved 1–12 item coverage map. Each item must contain a unique stable `coverage_id` in `COV-*` format, one purpose, confirmed source, state or branch, and expected invariant. The result must repeat every supplied ID exactly once.
 - `summarize_logs`: group only visible signatures. Do not accept an inferred root cause without separate evidence.
 - `draft_automation_skeleton`: draft structure from an explicit project pattern. The tool must not write files or external data.
 - `translate_text`: translate sanitized text while preserving supplied terminology.
@@ -68,6 +68,18 @@ If `canary_feedback_required` is true, call `record_canary_feedback` exactly onc
 - discarded: `rejected` and the primary rejection category.
 
 Do not invent, reuse, or persist draft IDs. If the router refuses or falls back, continue in the host agent without retry loops.
+
+`quality_status` controls automatic use per tool:
+
+- `active`: normal automatic routing;
+- `canary`: route normally, but review feedback is requested until enough evidence exists;
+- `paused`: do not use that local route; continue in the host agent.
+
+The gate uses the latest 20 reviewed drafts for the current profile. From 10 reviews, at least 80% acceptable drafts activate the route, while at least 20% serious factual or coverage corrections pause it. Translation, rewrite, source-bound summary, and short explanation start active; test cases, log summaries, and automation skeletons start in canary.
+
+When `shadow_evaluation_required` is true, create a separate host-agent baseline from the same sanitized Evidence Packet without incorporating the Qwen draft, compare both outputs, and use that comparison for the required content-free feedback. This flag is selected deterministically for approximately 10% of successful interactive drafts. It is a practical shadow check rather than a blind experiment because the flag arrives with the local result. QA Router never starts an extra cloud request itself.
+
+After every QA task reaches `completed`, `partial`, or `blocked`, call `record_qa_task_outcome` exactly once. Send counters and booleans only; never include ticket IDs, titles, source text, code, logs, paths, or draft content. `source_mcp_calls` counts Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence retrieval only; exclude CodeGraph, QA Router calls, and the outcome call itself.
 
 ## Optional deep analysis
 

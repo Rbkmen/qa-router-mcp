@@ -45,4 +45,6 @@ cp codex/skills/qa-local-routing/SKILL.md \
 
 The skill implements the shared [QA Router policy](../ROUTING_POLICY.md) for Codex. Codex remains responsible for the final result and any external write.
 
+The installed skill also enforces stable test-case coverage IDs, per-tool quality states, 10% independent shadow checks, content-free draft feedback, and one content-free outcome record per finished QA task.
+
 Reference: [official Codex MCP documentation](https://developers.openai.com/codex/mcp).

@@ -23,6 +23,11 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     feedback_by_profile: dict[str, list[dict[str, object]]] = defaultdict(list)
     totals = Counter()
     durations: list[float] = []
+    phase_durations: dict[str, list[float]] = defaultdict(list)
+    cold_starts: Counter[str] = Counter()
+    quality_statuses: Counter[str] = Counter()
+    shadow_requested = 0
+    shadow_eligible = 0
     qa_task_outcomes: Counter[str] = Counter()
     qa_task_types: Counter[str] = Counter()
     qa_task_totals = Counter()
@@ -72,7 +77,7 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             continue
         tool = str(event.get("tool", "unknown"))
         outcome = str(event.get("outcome", "unknown"))
-        has_metadata = event.get("schema_version") in {2, 4}
+        has_metadata = event.get("schema_version") in {2, 4, 7}
         source = str(event.get("source", "legacy")) if has_metadata else "legacy"
         model = str(event.get("model", "unknown")) if has_metadata else "unknown"
         profile = str(event.get("profile_version", "legacy")) if has_metadata else "legacy"
@@ -96,6 +101,20 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         duration = event.get("duration_ms")
         if isinstance(duration, (int, float)) and duration >= 0:
             durations.append(float(duration))
+        if event.get("schema_version") == 7:
+            for phase in ("model_load", "tokenization", "generation", "validation", "repair"):
+                value = event.get(f"{phase}_ms")
+                if isinstance(value, (int, float)) and value >= 0:
+                    phase_durations[phase].append(float(value))
+            cold = event.get("cold_start_likely")
+            if type(cold) is bool:
+                cold_starts[str(cold).lower()] += 1
+            quality = event.get("quality_status")
+            if quality in {"active", "canary", "paused"}:
+                quality_statuses[str(quality)] += 1
+            if outcome == "ok" and source == "interactive":
+                shadow_eligible += 1
+                shadow_requested += event.get("shadow_evaluation_required") is True
 
     return {
         "period_days": days,
@@ -109,6 +128,17 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         "truncations": totals["truncations"],
         "duration_ms_p50": _percentile(durations, 0.50),
         "duration_ms_p95": _percentile(durations, 0.95),
+        "phase_latency_ms": {
+            f"{phase}_{percentile}": _percentile(values, fraction)
+            for phase, values in phase_durations.items()
+            for percentile, fraction in (("p50", 0.50), ("p95", 0.95))
+        },
+        "cold_start_likely": dict(sorted(cold_starts.items())),
+        "shadow_evaluations": {
+            "requested": shadow_requested,
+            "rate": round(shadow_requested / shadow_eligible, 3) if shadow_eligible else None,
+        },
+        "quality_statuses": dict(sorted(quality_statuses.items())),
         "by_tool": {
             tool: dict(sorted(tool_outcomes.items()))
             for tool, tool_outcomes in sorted(tools.items())
