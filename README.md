@@ -201,3 +201,7 @@ Restart the host AI client. Remove the marker file to enable local delegation ag
 The current regression profile uses Qwen3.5-9B 4-bit, a 16K logical context, one serialized generation, thinking disabled, and a 300-second TTL. It was validated on Apple Silicon with 24 GB unified memory, LM Studio 0.4.23, and MLX runtime 1.11.0.
 
 The live regression suite validates output structure, policy enforcement, source-bounded behavior, fallback contracts, and the absence of persistent application memory. It does not replace expert QA review.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture guardrails, testing requirements, and pull-request guidance.
