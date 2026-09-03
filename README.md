@@ -1,7 +1,5 @@
 # QA Router MCP
 
-**English** | [Deutsch](README.de.md) | [Русский](README.ru.md) | [Español](README.es.md)
-
 A privacy-aware local MCP server that delegates bounded, sanitized QA drafting tasks from Codex to Qwen3.5-9B through LM Studio and MLX. Codex remains the primary orchestrator and owns evidence gathering, final QA judgment, code changes, and every external-system write.
 
 ![QA workflow architecture](docs/assets/qa-workflow-architecture.png)
