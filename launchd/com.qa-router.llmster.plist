@@ -7,17 +7,15 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/andreiviarshko/.lmstudio/bin/lms</string>
-    <string>daemon</string>
-    <string>up</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/.lmstudio/bin/lms" daemon up</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HOME</key>
-    <string>/Users/andreiviarshko</string>
     <key>PATH</key>
-    <string>/Users/andreiviarshko/.lmstudio/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
 
   <key>RunAtLoad</key>
@@ -29,9 +27,5 @@
   <key>Umask</key>
   <integer>63</integer>
 
-  <key>StandardOutPath</key>
-  <string>/Users/andreiviarshko/Library/Logs/qa-router-llmster.log</string>
-  <key>StandardErrorPath</key>
-  <string>/Users/andreiviarshko/Library/Logs/qa-router-llmster-error.log</string>
 </dict>
 </plist>

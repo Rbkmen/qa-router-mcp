@@ -209,7 +209,7 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 
 
 def main() -> None:
-    data_dir = Path(environ.get("QA_ROUTER_DATA_DIR", "/Users/andreiviarshko/.qa-router"))
+    data_dir = Path(environ.get("QA_ROUTER_DATA_DIR", str(Path.home() / ".qa-router")))
     path = data_dir / "metrics.jsonl"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     print(json.dumps(summarize_events(lines), ensure_ascii=False, indent=2))

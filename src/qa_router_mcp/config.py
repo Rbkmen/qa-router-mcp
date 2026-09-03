@@ -47,7 +47,7 @@ class Settings:
     context_reserve_tokens: int = 512
     metrics_source: str = "interactive"
     profile_version: str = "router-v9"
-    data_dir: Path = Path("/Users/andreiviarshko/.qa-router")
+    data_dir: Path = Path.home() / ".qa-router"
 
     def input_limit(self, kind: DraftKind) -> int:
         return min(self.max_input_chars, INPUT_CHAR_BUDGETS[kind])

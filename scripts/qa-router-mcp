@@ -3,10 +3,12 @@ set -eu
 
 router_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 router_model=${QA_ROUTER_MODEL:-qwen/qwen3.5-9b}
+router_home=${HOME:?HOME must be set}
+router_data_dir=${QA_ROUTER_DATA_DIR:-"$router_home/.qa-router"}
 
 exec /usr/bin/env -i \
-  HOME=/Users/andreiviarshko \
-  PATH=/Users/andreiviarshko/.local/bin:/opt/homebrew/bin:/usr/bin:/bin \
+  HOME="$router_home" \
+  PATH="$router_home/.local/bin:$router_home/.lmstudio/bin:/opt/homebrew/bin:/usr/bin:/bin" \
   QA_ROUTER_ENABLED=1 \
   QA_ROUTER_MODEL="$router_model" \
   QA_ROUTER_CONTEXT=16384 \
@@ -16,5 +18,5 @@ exec /usr/bin/env -i \
   QA_ROUTER_TTL_SECONDS=300 \
   QA_ROUTER_CONTEXT_RESERVE=512 \
   QA_ROUTER_METRICS_SOURCE=interactive \
-  QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
+  QA_ROUTER_DATA_DIR="$router_data_dir" \
   "$router_root/.venv/bin/qa-router-mcp"

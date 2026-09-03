@@ -1,100 +1,77 @@
 # QA Router MCP
 
-Локальный STDIO MCP-сервер для Codex Desktop. Qwen создаёт только
-ограниченные черновики QA-артефактов и безопасных текстовых задач. Codex остаётся
-единственным оркестратором и принимает финальные решения.
+**English** | [Deutsch](README.de.md) | [Русский](README.ru.md) | [Español](README.es.md)
 
-## Архитектура
+A privacy-aware local MCP server that delegates bounded, sanitized QA drafting tasks from Codex to Qwen3.5-9B through LM Studio and MLX. Codex remains the primary orchestrator and owns evidence gathering, final QA judgment, code changes, and every external-system write.
 
-- Основной чат: `gpt-5.6-terra` с `medium` reasoning.
-- Локальная рутина: `qwen/qwen3.5-9b` через loopback LM Studio/llmster и MLX.
-- Сложный анализ: один read-only `qa_deep` на `gpt-5.6-sol` с `high` reasoning.
-- Router не обучает модель, не ведёт application-level историю и не создаёт постоянную QA-память.
-- Jira, GitLab, TestRail, Sentry, Grafana и OpenSearch остаются за Codex и соответствующими MCP.
+![QA workflow architecture](docs/assets/qa-workflow-architecture.png)
 
-## Граница данных
+## Architecture
 
-- Router отклоняет секреты и признаки PII/payment data, включая player/session ID,
-  IP, UUID, телефон, PAN/card number и IBAN. Jira-ключи, URL, email, commit hash,
-  branch и локальные пути заменяются до локального вызова.
-- Входные и выходные бюджеты задаются отдельно для каждого инструмента; общий
-  верхний предел входа — 40 000 символов.
-- После sanitization router считает полный prompt точным tokenizer выбранной модели
-  через локальный LM Studio. Запрос
-  уходит в модель, только если prompt + выходной бюджет + резерв 512 tokens
-  укладываются в проверенный контекст 16K; иначе возвращается
-  `token_budget_exceeded` без вызова backend.
-- Логи содержат только время, имя инструмента, маршрут, результат, длительность,
-  счётчики токенов/запросов и категорию ошибки. Текст запросов и ответов не пишется.
-- Нельзя передавать credentials, cookies, tokens, персональные или платёжные данные, полные репозитории и неограниченные корпоративные документы.
-- Codex проверяет каждый локальный результат и отвечает за evidence, coverage, severity, release readiness, изменения кода и внешние операции.
+- **Primary orchestrator:** Codex with GPT-5.6 Terra at medium reasoning.
+- **Local routine drafts:** Qwen3.5-9B through loopback-only LM Studio/MLX.
+- **Complex escalation:** one optional read-only `qa_deep` agent using GPT-5.6 Sol at high reasoning.
+- **Source systems:** Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence remain under Codex control through their MCP integrations.
+- **Code navigation:** CodeGraph is used by Codex when an applicable project index exists.
 
-## Инструменты
+The router does not train the model, store conversation history, or create persistent QA memory. Every local result is an unverified draft that Codex must review.
 
-- `draft_test_cases` — разворачивает утверждённую Terra coverage map в черновики
-  тест-кейсов; не выбирает покрытие самостоятельно.
-- `summarize_logs` — группировка видимых сигнатур без неподтверждённого root cause.
-- `draft_automation_skeleton` — не записывающий файлы skeleton по переданному паттерну.
-- `translate_text` — перевод обезличенного текста с сохранением терминов.
-- `rewrite_text` — сокращение, исправление или изменение стиля без новых фактов.
-- `explain_short` — краткое объяснение стабильной темы без внешнего исследования.
-- `summarize_text` — выжимка только из переданного текста.
-- `record_canary_feedback` — обезличенная оценка проверенного локального черновика;
-  принимает выданный `draft_id`, результат проверки и категорию основной правки.
-- `record_qa_task_outcome` — одна обезличенная итоговая запись QA-задачи: тип и
-  результат задачи, счётчики source MCP/CodeGraph, Qwen/Sol, findings и повторных чтений.
+## What is routed locally
 
-| Инструмент | Вход, символов | Максимальный выход, tokens |
-|---|---:|---:|
-| `draft_test_cases` | 20 000 | 3 072 |
-| `summarize_logs` | 40 000 | 1 536 |
-| `draft_automation_skeleton` | 20 000 | 3 072 |
-| `translate_text` / `rewrite_text` | 12 000 | 1 536 |
-| `explain_short` | 6 000 | 512 |
-| `summarize_text` | 24 000 | 2 048 |
+| Tool | Purpose | Input limit | Maximum output |
+|---|---|---:|---:|
+| `draft_test_cases` | Expand a Terra-approved coverage map into test-case prose | 20,000 chars | 3,072 tokens |
+| `summarize_logs` | Group visible log signatures without inventing root causes | 40,000 chars | 1,536 tokens |
+| `draft_automation_skeleton` | Draft a non-writing skeleton from an explicit project pattern | 20,000 chars | 3,072 tokens |
+| `translate_text` | Translate sanitized text while preserving terminology | 12,000 chars | 1,536 tokens |
+| `rewrite_text` | Shorten, correct, or restyle text without adding facts | 12,000 chars | 1,536 tokens |
+| `explain_short` | Explain a stable topic briefly | 6,000 chars | 512 tokens |
+| `summarize_text` | Produce a source-bound summary | 24,000 chars | 2,048 tokens |
 
-Router v9 выбирает фактический выходной бюджет ниже этого потолка:
+The automatic route is intentionally selective:
 
-- тест-кейсы: 1–3 — 1 024, 4–6 — 2 048, 7–12 — 3 072 tokens;
-- automation skeleton: до 6 000 символов — 1 536, больше — 3 072;
-- summary: до 6 000 символов — 768, больше — 2 048;
-- логи: до 8 000 символов — 768, до 24 000 — 1 024, больше — 1 536;
-- перевод и rewrite: до 1 000 символов — 512, до 6 000 — 1 024,
-  больше — 1 536;
-- короткое объяснение — 512 tokens.
+- 4–12 test cases;
+- logs from 6,000 characters;
+- source-bound summaries from 4,000 characters;
+- translations or rewrites from 2,000 characters;
+- automation skeletons only when an explicit project pattern and a multi-step scenario are provided.
 
-Глобальный `QA_ROUTER_MAX_OUTPUT` остаётся последним верхним ограничителем.
+Smaller tasks stay in Terra. `explain_short` is local only when explicitly requested. An explicit local-model request may override size thresholds, but never policy restrictions.
 
-Автоматическая маршрутизация отправляет в Qwen только задачи, достаточно большие,
-чтобы локальный черновик экономил контекст основного чата:
+## Safety boundaries
 
-- 4–12 тест-кейсов;
-- логи от 6 000 символов;
-- source-bound summary от 4 000 символов;
-- перевод или rewrite от 2 000 символов;
-- automation skeleton только при наличии явного проектного паттерна и
-  многошагового сценария.
+- Secrets and indicators of PII or payment data are rejected.
+- Issue keys, URLs, email addresses, commit hashes, branches, and local paths are replaced before a local request.
+- The full sanitized prompt is tokenized with the selected local model before generation.
+- Prompt tokens, adaptive output budget, and a 512-token reserve must fit the verified 16K context.
+- Logs contain metadata and counters only, never prompt or response text.
+- Credentials, cookies, tokens, personal or payment data, full repositories, and unrestricted corporate documents must never be sent to the local route.
+- Codex validates evidence, coverage, severity, release readiness, code changes, and external actions.
 
-Меньшие задачи остаются в Terra. `explain_short` используется локально только по
-явному запросу пользователя. Явный запрос локальной модели может переопределить
-порог размера, но не policy-ограничения.
+## Requirements
 
-Перед `draft_test_cases` Terra определяет финальное покрытие и передаёт
-`coverage_map` из 1–12 элементов — ровно один purpose/source/state branch/expected
-invariant на кейс. Router выводит из длины карты точное количество кейсов, а Qwen
-только заполняет Title, Preconditions, Steps и Expected Result. Дополнительные,
-объединённые или потерянные сценарии исправляет Terra.
+- macOS on Apple Silicon;
+- Python 3.12 or newer;
+- [`uv`](https://docs.astral.sh/uv/);
+- LM Studio with the `lms` CLI;
+- Codex Desktop;
+- the `qwen/qwen3.5-9b` model downloaded in LM Studio.
 
-## Локальная установка
+## Installation
+
+### 1. Clone and verify
 
 ```bash
-cd /Users/andreiviarshko/Projects/qa-router-mcp
+git clone https://github.com/Rbkmen/qa-router-mcp.git
+cd qa-router-mcp
 uv sync
 uv run pytest -q
 uv run ruff check .
 ```
 
-Установить официальный headless runtime и запустить локальный API:
+### 2. Start the local runtime
+
+Install LM Studio's official headless runtime if needed:
 
 ```bash
 curl -fsSL https://lmstudio.ai/install.sh | bash
@@ -102,15 +79,13 @@ lms daemon up
 lms server start
 ```
 
-Ожидаемые MLX-модели:
+Verify that the model is available:
 
 ```bash
 lms ls
 ```
 
-- `qwen/qwen3.5-9b` — основной маршрут.
-
-Проверенный профиль:
+Load the reference profile:
 
 ```bash
 lms load qwen/qwen3.5-9b \
@@ -121,169 +96,107 @@ lms load qwen/qwen3.5-9b \
   -y
 ```
 
-JIT загрузка включена: первая задача загружает выбранную модель, неактивная модель
-выгружается через пять минут, а при переключении остаётся только последняя JIT-модель.
-API слушает только `127.0.0.1:1234`; CORS, запись файловых server logs и вывод
-содержимого запросов отключены.
+The API must listen only on `127.0.0.1:1234`. JIT loading allows the model to load on the first request and unload after five minutes of inactivity.
 
-Для запуска llmster при входе в macOS используется
-`launchd/com.qa-router.llmster.plist`.
+### 3. Optional: start llmster at login
 
 ```bash
-cp launchd/com.qa-router.llmster.plist \
-  /Users/andreiviarshko/Library/LaunchAgents/com.qa-router.llmster.plist
-launchctl bootstrap gui/$(id -u) \
-  /Users/andreiviarshko/Library/LaunchAgents/com.qa-router.llmster.plist
+mkdir -p "$HOME/Library/LaunchAgents"
+cp launchd/com.qa-router.llmster.plist "$HOME/Library/LaunchAgents/"
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.qa-router.llmster.plist"
 ```
 
-## Codex Desktop
-
-Установить routing skill:
+### 4. Install the Codex routing skill
 
 ```bash
-mkdir -p /Users/andreiviarshko/.codex/skills/qa-local-routing
+mkdir -p "$HOME/.codex/skills/qa-local-routing"
 cp codex/skills/qa-local-routing/SKILL.md \
-  /Users/andreiviarshko/.codex/skills/qa-local-routing/SKILL.md
+  "$HOME/.codex/skills/qa-local-routing/SKILL.md"
 ```
 
-Конфигурация MCP:
+### 5. Register the MCP server in Codex
+
+Find the clone's absolute path with `pwd`, then add the following block to the Codex configuration:
 
 ```toml
 [mcp_servers.qa-router]
-command = "/Users/andreiviarshko/Projects/qa-router-mcp/scripts/qa-router-mcp"
+command = "/absolute/path/to/qa-router-mcp/scripts/qa-router-mcp"
 args = []
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 ```
 
-После изменения конфигурации перезапустить Codex Desktop.
+Restart Codex Desktop after changing its configuration.
 
-## Fallback
+## Runtime configuration
 
-`local_delegation_disabled`, `token_budget_exceeded`, `local_tokenizer_error`,
-`sensitive_data_detected`,
-`requested_case_count_too_large`,
-`local_model_invalid_response`,
-`local_model_invalid_schema`, `local_model_invalid_draft`, `local_model_truncated`
-и `local_model_transport_error` возвращают
-управление Codex.
+The launcher uses safe defaults and accepts these environment variables:
 
-- Transport-ошибка повторяется один раз; policy- и response-ошибки не повторяются.
-- Для невалидного JSON допускается одна schema-repair попытка.
-- Для неполного QA-черновика допускается одна semantic-repair попытка.
-- `draft_test_cases` проверяет число кейсов и наличие Title, Preconditions, Steps и
-  Expected Result у каждого кейса. Запросы свыше 12 кейсов возвращаются Codex для
-  разбиения на меньшие пакеты.
-- `explain_short` проверяется на лимит 120 слов, а automation skeleton — на отсутствие
-  явных внешних записей.
+| Variable | Default |
+|---|---|
+| `QA_ROUTER_MODEL` | `qwen/qwen3.5-9b` |
+| `QA_ROUTER_CONTEXT` | `16384` |
+| `QA_ROUTER_MAX_OUTPUT` | `3072` |
+| `QA_ROUTER_LMSTUDIO_URL` | `http://127.0.0.1:1234` |
+| `QA_ROUTER_TIMEOUT` | `90` |
+| `QA_ROUTER_TTL_SECONDS` | `300` |
+| `QA_ROUTER_CONTEXT_RESERVE` | `512` |
+| `QA_ROUTER_DATA_DIR` | `$HOME/.qa-router` |
 
-## Метрики и regression gate
+The model, context, loopback endpoint, and single-generation parallelism are pinned to the verified profile.
 
-Обезличенные события сохраняются в `~/.qa-router/metrics.jsonl`. Короткий отчёт за
-последние семь дней:
+## Validation and fallback
+
+- Transport failures are retried once.
+- Invalid JSON receives at most one schema-repair attempt.
+- Incomplete QA drafts receive at most one semantic-repair attempt.
+- Test-case output must match the requested coverage-map length and required fields.
+- Automation skeletons are rejected if they contain explicit external writes.
+- Policy, context-budget, tokenizer, transport, truncation, schema, and validation failures return control to Codex.
+
+## Metrics
+
+Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Prompt text, generated drafts, issue keys, code, logs, and paths are not recorded.
+
+Generate a seven-day report:
 
 ```bash
-cd /Users/andreiviarshko/Projects/qa-router-mcp
-.venv/bin/qa-router-report
+uv run qa-router-report
 ```
 
-События Router v9 помечаются моделью, версией профиля и источником
-`interactive`, `benchmark` или `smoke`. Отчёт показывает отдельно для каждого
-источника, модели и профиля: outcomes, оценку входного бюджета, фактические
-prompt/output tokens, число запросов и p50/p95 длительности. Старые события
-остаются читаемыми в группе `legacy`; текст запросов и ответов не сохраняется.
-Отчёт не является QA-памятью.
-Токены Terra/Sol router измерить не может, поэтому экономию нужно оценивать сравнением
-одинаковых задач в Codex.
-
-После завершения QA review/planning задачи Terra может записать одно событие
-`qa_task_outcome`. Оно содержит только фиксированные категории и неотрицательные
-счётчики: тип/result задачи, количество вызовов source MCP и CodeGraph, использование
-Qwen/Sol, identified/confirmed/rejected findings, Qwen edits и повторные чтения
-источника. Jira-ключи, названия, source text, код, логи, пути и черновики интерфейс
-не принимает. Семидневный отчёт агрегирует эти записи отдельно в `qa_tasks`.
-
-`source_mcp_calls` считает только обращения к источникам через Jira, GitLab,
-TestRail, Sentry, Grafana, OpenSearch, Slack и Confluence MCP. CodeGraph, qa-router
-и сама запись метрики в этот счётчик не входят.
-
-Canary собирает ровно одну оценку для каждого выданного `draft_id`: `accepted`,
-`edited` или `rejected` и, при правке/отклонении, одну категорию причины. Запись и
-проверка выполняются под общим файловым lock, поэтому несколько чатов используют
-единое состояние и не принимают дубли или feedback без соответствующего черновика.
-Текст задачи и черновика в metrics не попадает.
-
-Выборка каждой версии профиля из 50 оценок стратифицирована: 15 test-case, 10 log, 10 automation,
-10 summary, 3 rewrite и 2 translation drafts. Маршрут перестаёт запрашивать
-feedback после заполнения квоты текущей версии. Прогресс canary считается за всё
-время отдельно для каждого `profile_version` и отдельно от семидневных
-generation-метрик.
-
-Regression corpus содержит четыре synthetic sanitized примера для каждого из семи
-инструментов, а также отдельные policy/fallback проверки. Он запускается вместе с
-`pytest` после изменения модели, prompt или routing-кода.
-
-Полный opt-in прогон всех 28 примеров через Qwen:
+Run the opt-in 28-case live regression benchmark:
 
 ```bash
 QA_ROUTER_BENCHMARK=1 uv run pytest -q tests/test_live_benchmark.py -s
 ```
 
-Чтобы сохранить benchmark рядом с interactive-метриками для сравнения в отчёте:
+To store benchmark metrics with interactive metrics:
 
 ```bash
-QA_ROUTER_DATA_DIR=/Users/andreiviarshko/.qa-router \
+QA_ROUTER_DATA_DIR="$HOME/.qa-router" \
 QA_ROUTER_BENCHMARK=1 \
 uv run pytest -q tests/test_live_benchmark.py -s
 ```
 
-Он намеренно не запускается по умолчанию. Сравнение с прямым Terra остаётся ручным:
-локальный router не имеет доступа к usage основного Codex-чата.
-
-## Отключение
+## Disable local delegation
 
 ```bash
-mkdir -p /Users/andreiviarshko/.qa-router
-touch /Users/andreiviarshko/.qa-router/disabled
+mkdir -p "$HOME/.qa-router"
+touch "$HOME/.qa-router/disabled"
 ```
 
-После перезапуска router отвечает `local_delegation_disabled`. Для включения удалить marker-файл.
+Restart Codex Desktop. Remove the marker file to enable local delegation again.
 
-## Удаление интеграции
+## Uninstall the integration
 
-1. Остановить LaunchAgent `com.qa-router.llmster`.
-2. Удалить его plist из `~/Library/LaunchAgents`.
-3. Удалить блок `[mcp_servers.qa-router]` из Codex config.
-4. Удалить skill `~/.codex/skills/qa-local-routing`.
-5. Перезапустить Codex Desktop.
+1. Boot out `com.qa-router.llmster` and remove its plist from `$HOME/Library/LaunchAgents`.
+2. Remove the `[mcp_servers.qa-router]` block from the Codex configuration.
+3. Remove `$HOME/.codex/skills/qa-local-routing`.
+4. Restart Codex Desktop.
 
-Репозиторий локальный: push, GitLab, GitHub и публикация не требуются.
+## Reference profile
 
-## Проверенный профиль
+The current regression profile uses Qwen3.5-9B 4-bit, a 16K logical context, one serialized generation, thinking disabled, and a 300-second TTL. It was validated on Apple Silicon with 24 GB unified memory, LM Studio 0.4.23, and MLX runtime 1.11.0.
 
-MacBook Pro M5 Pro с 24 GB unified memory, LM Studio `0.4.23`, MLX runtime `1.11.0`,
-контекст router 16K, thinking отключён, router сериализует генерации, TTL 300 секунд.
-
-У MLX runtime контекст выделяется динамически, поэтому `lms ps` может показывать
-автоматически рассчитанный максимум выше 16K. Фактическую границу router сохраняют
-отдельные входные бюджеты: максимальный проверенный пакет укладывается в логический
-профиль 16K.
-
-Live benchmark использует 28 synthetic sanitized примеров: по четыре для каждого из
-семи инструментов. Это regression gate формата, policy и source-bounded поведения,
-но не замена экспертной QA-оценке результата. Отдельно проверяются secret refusal,
-fallback-контракт и отсутствие постоянной памяти.
-
-Проверка профиля Router v9 от 2026-09-03:
-
-- 28/28 synthetic regression-сценариев прошли за 77,15 секунды без repair,
-  fallback и truncation;
-- live smoke подтвердил генерацию, `secret_detected` и `token_budget_exceeded` до
-  обращения к генерации;
-- `lms ps` показал Qwen3.5-9B 4-bit размером 5,98 GB и TTL 300 секунд;
-- отдельный qualitative canary был отклонён как `factual`: Qwen добавил не заданные
-  UI-сообщения и не пометил их `unverified`.
-
-Поэтому проверка Terra — обязательная граница, а не формальность. Test cases и
-automation skeleton остаются непроверенными черновиками: Codex сверяет каждый пункт
-с coverage map, реальными API, helpers и паттернами проекта.
+The live regression suite validates output structure, policy enforcement, source-bounded behavior, fallback contracts, and the absence of persistent application memory. It does not replace expert QA review.
