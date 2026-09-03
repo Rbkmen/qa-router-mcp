@@ -145,8 +145,10 @@ async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path):
 
     assert result.status == "ok"
     assert result.canary_feedback_required is True
+    assert result.draft_id is not None
     event = (tmp_path / "metrics.jsonl").read_text()
     assert '"source":"interactive"' in event
+    assert f'"draft_id":"{result.draft_id}"' in event
 
 
 @pytest.mark.asyncio
@@ -159,6 +161,7 @@ async def test_benchmark_draft_does_not_request_canary_feedback(tmp_path):
 
     assert result.status == "ok"
     assert result.canary_feedback_required is False
+    assert result.draft_id is None
 
 
 @pytest.mark.asyncio
@@ -320,57 +323,176 @@ def test_event_sink_logs_usage_without_content(capsys, tmp_path):
 def test_event_sink_records_content_free_canary_feedback(tmp_path):
     path = tmp_path / "metrics.jsonl"
     sink = JsonEventSink(path)
-
-    receipt = sink.record_feedback(
+    draft_id = "a" * 32
+    sink.emit(
         "test_cases",
-        "edited",
-        "coverage",
-        profile_version="router-v6",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v7",
+        source="interactive",
+        draft_id=draft_id,
     )
 
-    event = __import__("json").loads(path.read_text())
+    receipt = sink.record_feedback(
+        draft_id,
+        "edited",
+        "coverage",
+    )
+
+    events = [__import__("json").loads(line) for line in path.read_text().splitlines()]
+    event = events[-1]
     assert receipt.status == "recorded"
     assert receipt.feedback_count == 1
     assert receipt.target == 50
     assert event == {
-        "schema_version": 3,
+        "schema_version": 4,
         "event_type": "canary_feedback",
         "timestamp": event["timestamp"],
         "tool": "test_cases",
-        "profile_version": "router-v6",
+        "draft_id": draft_id,
+        "profile_version": "router-v7",
         "source": "interactive",
         "verdict": "edited",
         "reason": "coverage",
     }
-    assert "draft" not in path.read_text()
-    assert "content" not in path.read_text()
+    assert "draft" not in event
+    assert "content" not in event
 
 
-def test_canary_stops_recording_after_fifty_reviews(tmp_path):
+def test_canary_uses_global_tool_quotas_across_sink_instances(tmp_path):
     path = tmp_path / "metrics.jsonl"
-    sink = JsonEventSink(path)
-
-    for _ in range(50):
-        receipt = sink.record_feedback(
-            "translation",
-            "accepted",
-            "none",
-            profile_version="router-v6",
+    sinks = [JsonEventSink(path) for _ in range(3)]
+    draft_ids = [str(index) * 32 for index in range(1, 4)]
+    issued_ids = []
+    for sink, draft_id in zip(sinks, draft_ids, strict=True):
+        issued_ids.append(
+            sink.emit(
+                "translation",
+                "ok",
+                1.0,
+                None,
+                profile_version="router-v7",
+                source="interactive",
+                draft_id=draft_id,
+            )
         )
 
-    completed = sink.record_feedback(
-        "translation",
-        "accepted",
-        "none",
-        profile_version="router-v6",
+    assert issued_ids == [draft_ids[0], draft_ids[1], None]
+    first = sinks[0].record_feedback(draft_ids[0], "accepted", "none")
+    second = sinks[1].record_feedback(draft_ids[1], "accepted", "none")
+
+    assert first.status == "recorded"
+    assert second.status == "recorded"
+    assert sinks[2].canary_active("translation") is False
+    assert sinks[2].canary_active("test_cases") is True
+
+
+def test_canary_accepts_only_one_feedback_for_an_issued_draft(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+    draft_id = "a" * 32
+    sink.emit(
+        "test_cases",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v7",
+        source="interactive",
+        draft_id=draft_id,
     )
+
+    recorded = sink.record_feedback(draft_id, "accepted", "none")
+    duplicate = sink.record_feedback(draft_id, "accepted", "none")
+    unknown = sink.record_feedback("f" * 32, "accepted", "none")
+
+    assert recorded.status == "recorded"
+    assert duplicate.status == "duplicate"
+    assert unknown.status == "not_found"
+    assert unknown.feedback_count == 1
+
+
+def test_canary_completes_only_after_every_tool_quota(tmp_path):
+    from qa_router_mcp.events import CANARY_TOOL_TARGETS
+
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+    index = 0
+    for tool, target in CANARY_TOOL_TARGETS.items():
+        for _ in range(target):
+            index += 1
+            draft_id = f"{index:032x}"
+            sink.emit(
+                tool,
+                "ok",
+                1.0,
+                None,
+                profile_version="router-v7",
+                source="interactive",
+                draft_id=draft_id,
+            )
+            receipt = sink.record_feedback(draft_id, "accepted", "none")
 
     assert receipt.status == "recorded"
     assert receipt.feedback_count == 50
-    assert completed.status == "complete"
-    assert completed.feedback_count == 50
-    assert len(path.read_text().splitlines()) == 50
-    assert sink.canary_active is False
+    assert all(not sink.canary_active(tool) for tool in CANARY_TOOL_TARGETS)
+
+
+def test_service_records_feedback_by_draft_id(tmp_path):
+    service = RouterService(
+        Settings(data_dir=tmp_path),
+        DraftFake(DraftEnvelope(draft="unused", unverified=[])),
+    )
+    draft_id = "a" * 32
+    service.events.emit(
+        "test_cases",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v7",
+        source="interactive",
+        draft_id=draft_id,
+    )
+
+    receipt = service.record_canary_feedback(draft_id, "edited", "coverage")
+
+    assert receipt.status == "recorded"
+
+
+def test_malformed_feedback_does_not_consume_canary_quota(tmp_path):
+    import json
+
+    from qa_router_mcp.events import validated_canary_feedback
+
+    path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(path)
+    draft_id = "a" * 32
+    sink.emit(
+        "test_cases",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v7",
+        source="interactive",
+        draft_id=draft_id,
+    )
+    malformed = {
+        "schema_version": 1,
+        "event_type": "canary_feedback",
+        "timestamp": "2026-09-03T00:00:00+00:00",
+        "tool": "test_cases",
+        "draft_id": draft_id,
+        "profile_version": "router-v7",
+        "source": "benchmark",
+        "verdict": "bogus",
+    }
+    with path.open("a", encoding="utf-8") as metrics:
+        metrics.write(json.dumps(malformed) + "\n")
+
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+
+    assert validated_canary_feedback(events) == []
+    assert sink.canary_active("test_cases") is True
 
 
 @pytest.mark.parametrize(
@@ -384,4 +506,4 @@ def test_canary_feedback_requires_a_consistent_reason(tmp_path, verdict, reason)
     )
 
     with pytest.raises(ValueError, match="feedback reason"):
-        service.record_canary_feedback(DraftKind.TEST_CASES, verdict, reason)
+        service.record_canary_feedback("a" * 32, verdict, reason)

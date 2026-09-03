@@ -27,13 +27,16 @@ When `canary_feedback_required` is true, call `record_canary_feedback` exactly o
 - corrected draft: `edited` + the main reason;
 - discarded draft: `rejected` + the main reason.
 
-Feedback contains only route kind, verdict, and reason—never task or draft text. The router stops requesting feedback after 50 reviews.
+Call `record_canary_feedback(draft_id=<returned ID>, verdict=<verdict>, reason=<reason>)`; these are the only arguments. Never invent or reuse an ID, and do not submit feedback when `canary_feedback_required` is false. Stored feedback contains only the random ID, derived route kind, verdict, and reason—never task or draft text.
+
+The 50-review canary uses fixed quotas: 15 test-case, 10 log, 10 automation, 10 summary, 3 rewrite, and 2 translation drafts. A route stops requesting feedback when its quota is full.
 
 ## Keep in Codex
 
 Codex owns Jira/MR/diff analysis, current facts, evidence, final coverage, severity, release readiness, code changes, and every external-system action. Continue in Terra when local routing refuses or falls back.
 
 Never include credentials, cookies, tokens, personal or payment data, complete repositories, or unrestricted corporate documents.
+If a local route refuses with `sensitive_data_detected`, reduce and sanitize the packet in Codex; do not weaken or bypass the check.
 
 ## Persistence
 

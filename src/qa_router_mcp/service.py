@@ -1,4 +1,5 @@
 from time import monotonic
+from uuid import uuid4
 
 from qa_router_mcp.backends import BackendError, DraftBackend
 from qa_router_mcp.config import Settings
@@ -29,17 +30,16 @@ class RouterService:
 
     def record_canary_feedback(
         self,
-        route_kind: DraftKind,
+        draft_id: str,
         verdict: CanaryVerdict,
         reason: CanaryReason,
     ) -> CanaryFeedbackReceipt:
         if (verdict == "accepted") != (reason == "none"):
             raise ValueError("feedback reason must be none only for accepted drafts")
         return self.events.record_feedback(
-            route_kind.value,
+            draft_id,
             verdict,
             reason,
-            profile_version=self.settings.profile_version,
         )
 
     def _record(
@@ -52,12 +52,10 @@ class RouterService:
         validation_repair: bool = False,
         estimated_prompt_tokens: int = 0,
     ) -> DraftEnvelope:
-        result.canary_feedback_required = (
-            result.status == "ok"
-            and self.settings.metrics_source == "interactive"
-            and self.events.canary_active
-        )
-        self.events.emit(
+        candidate_id = None
+        if result.status == "ok" and self.settings.metrics_source == "interactive":
+            candidate_id = uuid4().hex
+        result.draft_id = self.events.emit(
             kind.value,
             result.status,
             (monotonic() - started) * 1_000,
@@ -70,7 +68,9 @@ class RouterService:
             source=self.settings.metrics_source,
             estimated_prompt_tokens=estimated_prompt_tokens,
             context_tokens=self.settings.context,
+            draft_id=candidate_id,
         )
+        result.canary_feedback_required = result.draft_id is not None
         return result
 
     async def draft(

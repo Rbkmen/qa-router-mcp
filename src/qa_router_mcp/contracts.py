@@ -41,6 +41,7 @@ class DraftEnvelope(BaseModel):
     unverified: list[str] = Field(default_factory=list)
     reason: str | None = None
     canary_feedback_required: bool = False
+    draft_id: str | None = None
     _generation_stats: GenerationStats = PrivateAttr(default_factory=GenerationStats)
 
     @property
@@ -62,6 +63,6 @@ class DraftEnvelope(BaseModel):
 
 
 class CanaryFeedbackReceipt(BaseModel):
-    status: Literal["recorded", "complete"]
+    status: Literal["recorded", "complete", "duplicate", "not_found", "unavailable", "invalid"]
     feedback_count: int
     target: int

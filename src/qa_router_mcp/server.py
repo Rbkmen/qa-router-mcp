@@ -75,12 +75,12 @@ def build_server(service: RouterService) -> FastMCP:
 
     @mcp.tool
     async def record_canary_feedback(
-        route_kind: DraftKind,
+        draft_id: str,
         verdict: CanaryVerdict,
         reason: CanaryReason,
     ) -> CanaryFeedbackReceipt:
         """Record content-free review feedback when a local draft requests it."""
-        return service.record_canary_feedback(route_kind, verdict, reason)
+        return service.record_canary_feedback(draft_id, verdict, reason)
 
     return mcp
 

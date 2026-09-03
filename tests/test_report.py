@@ -85,29 +85,48 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
     lines = [
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 4,
                 "timestamp": timestamp,
                 "tool": "test_cases",
                 "outcome": "ok",
                 "source": "interactive",
+                "profile_version": "router-v7",
+                "draft_id": "a" * 32,
             }
         ),
         json.dumps(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "event_type": "canary_feedback",
                 "timestamp": timestamp,
                 "tool": "test_cases",
+                "profile_version": "router-v7",
+                "draft_id": "a" * 32,
+                "source": "interactive",
                 "verdict": "edited",
                 "reason": "coverage",
             }
         ),
         json.dumps(
             {
-                "schema_version": 3,
+                "schema_version": 4,
+                "timestamp": timestamp,
+                "tool": "translation",
+                "outcome": "ok",
+                "source": "interactive",
+                "profile_version": "router-v7",
+                "draft_id": "b" * 32,
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 4,
                 "event_type": "canary_feedback",
                 "timestamp": timestamp,
                 "tool": "translation",
+                "profile_version": "router-v7",
+                "draft_id": "b" * 32,
+                "source": "interactive",
                 "verdict": "accepted",
                 "reason": "none",
             }
@@ -116,12 +135,28 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
 
     report = summarize_events(lines)
 
-    assert report["events"] == 1
-    assert report["outcomes"] == {"ok": 1}
+    assert report["events"] == 2
+    assert report["outcomes"] == {"ok": 2}
     assert report["canary_feedback"] == {
         "target": 50,
         "reviews": 2,
         "complete": False,
+        "targets_by_tool": {
+            "automation_skeleton": 10,
+            "log_summary": 10,
+            "rewrite": 3,
+            "test_cases": 15,
+            "text_summary": 10,
+            "translation": 2,
+        },
+        "progress_by_tool": {
+            "automation_skeleton": 0,
+            "log_summary": 0,
+            "rewrite": 0,
+            "test_cases": 1,
+            "text_summary": 0,
+            "translation": 1,
+        },
         "verdicts": {"accepted": 1, "edited": 1},
         "reasons": {"coverage": 1, "none": 1},
         "by_tool": {
@@ -137,14 +172,28 @@ def test_canary_feedback_progress_is_lifetime_not_weekly():
         [
             json.dumps(
                 {
-                    "schema_version": 3,
+                    "schema_version": 4,
+                    "timestamp": old_timestamp,
+                    "tool": "test_cases",
+                    "outcome": "ok",
+                    "source": "interactive",
+                    "profile_version": "router-v7",
+                    "draft_id": "a" * 32,
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_version": 4,
                     "event_type": "canary_feedback",
                     "timestamp": old_timestamp,
                     "tool": "test_cases",
+                    "profile_version": "router-v7",
+                    "draft_id": "a" * 32,
+                    "source": "interactive",
                     "verdict": "accepted",
                     "reason": "none",
                 }
-            )
+            ),
         ]
     )
 

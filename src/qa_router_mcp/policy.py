@@ -18,6 +18,18 @@ DECISION = re.compile(
     r"(?i)\b(decide|determine|choose|assess)\b.{0,32}"
     r"\b(severity|priority|release readiness|merge readiness|root cause)\b"
 )
+SENSITIVE_FIELD = re.compile(
+    r"(?ix)(?<!\w)[\"']?"
+    r"(?:player[_-]?id|user[_-]?id|customer[_-]?id|account[_-]?id|session[_-]?id|"
+    r"client[_-]?ip|ip[_-]?address|phone|card[_-]?number|pan|iban)"
+    r"[\"']?\s*[:=]\s*(?P<value>\"[^\"]*\"|'[^']*'|[^\s,}]+)"
+)
+IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+UUID = re.compile(
+    r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"
+)
+SAFE_PLACEHOLDERS = {"", "null", "none", "nil", "redacted", "masked"}
 REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"https?://[^\s]+"), "[URL]"),
     (re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b"), "[ISSUE]"),
@@ -48,7 +60,18 @@ def sanitize_transient(text: str, limit: int) -> str:
 
 
 def assert_allowed_request(kind: DraftKind, text: str) -> None:
+    if _contains_sensitive_data(text):
+        raise PolicyError("sensitive_data_detected")
     if DECISION.search(text):
         raise PolicyError("codex_only_decision")
     if kind == DraftKind.TEST_CASES and requested_case_count(text) > MAX_LOCAL_TEST_CASES:
         raise PolicyError("requested_case_count_too_large")
+
+
+def _contains_sensitive_data(text: str) -> bool:
+    for match in SENSITIVE_FIELD.finditer(text):
+        value = match.group("value").strip("\"'").strip()
+        normalized = value.strip("[]").lower()
+        if normalized not in SAFE_PLACEHOLDERS and set(value) != {"*"}:
+            return True
+    return IPV4.search(text) is not None or UUID.search(text) is not None

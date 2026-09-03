@@ -20,7 +20,7 @@ def test_settings_use_pinned_safe_defaults(monkeypatch):
     assert settings.max_parallel == 1
     assert settings.context_reserve_tokens == 512
     assert settings.metrics_source == "interactive"
-    assert settings.profile_version == "router-v6"
+    assert settings.profile_version == "router-v7"
     assert settings.input_limit(DraftKind.SHORT_EXPLANATION) == 6_000
     assert settings.input_limit(DraftKind.LOG_SUMMARY) == 40_000
 

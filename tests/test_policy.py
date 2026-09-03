@@ -37,3 +37,37 @@ def test_oversized_input_is_rejected():
 def test_decision_request_is_refused():
     with pytest.raises(PolicyError, match="codex_only_decision"):
         assert_allowed_request(DraftKind.TEST_CASES, "Determine release readiness")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "player_id=123456",
+        "client_ip=10.20.30.40",
+        "session_id=550e8400-e29b-41d4-a716-446655440000",
+        "phone=+375291234567",
+        "card_number=4111111111111111",
+        "iban=GB82WEST12345698765432",
+        '{"player_id":"123456"}',
+        '{"session_id":"abc123"}',
+        '{"phone":"+375291234567"}',
+        '{"card_number":"4111111111111111"}',
+        '{"iban":"GB82WEST12345698765432"}',
+    ],
+)
+def test_sensitive_log_identifiers_are_rejected_before_local_routing(raw):
+    with pytest.raises(PolicyError, match="sensitive_data_detected"):
+        assert_allowed_request(DraftKind.LOG_SUMMARY, raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "player_id=[REDACTED]",
+        '{"session_id":"[MASKED]"}',
+        "client_ip=***",
+        "phone=null",
+    ],
+)
+def test_redacted_sensitive_fields_are_allowed(raw):
+    assert_allowed_request(DraftKind.LOG_SUMMARY, raw)

@@ -52,7 +52,7 @@ async def test_server_exposes_seven_drafting_tools_and_canary_feedback(tmp_path)
         feedback = await client.call_tool(
             "record_canary_feedback",
             {
-                "route_kind": "test_cases",
+                "draft_id": result.structured_content["draft_id"],
                 "verdict": "edited",
                 "reason": "coverage",
             },

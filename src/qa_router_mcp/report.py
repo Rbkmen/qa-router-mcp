@@ -5,7 +5,11 @@ from datetime import UTC, datetime, timedelta
 from os import environ
 from pathlib import Path
 
-from qa_router_mcp.events import CANARY_TARGET
+from qa_router_mcp.events import (
+    CANARY_TARGET,
+    CANARY_TOOL_TARGETS,
+    validated_canary_feedback,
+)
 
 
 def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
@@ -21,27 +25,39 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     totals = Counter()
     durations: list[float] = []
 
+    events: list[dict[str, object]] = []
     for line in lines:
         try:
             event = json.loads(line)
-            timestamp = datetime.fromisoformat(event["timestamp"])
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        except (json.JSONDecodeError, TypeError):
             continue
-        tool = str(event.get("tool", "unknown"))
+        if isinstance(event, dict):
+            events.append(event)
+
+    feedback = validated_canary_feedback(events)
+    for event in feedback:
+        tool = str(event["tool"])
+        verdict = str(event.get("verdict", "unknown"))
+        reason = str(event.get("reason", "unknown"))
+        feedback_verdicts[verdict] += 1
+        feedback_reasons[reason] += 1
+        feedback_tools[tool][verdict] += 1
+
+    for event in events:
         if event.get("event_type") == "canary_feedback":
-            verdict = str(event.get("verdict", "unknown"))
-            reason = str(event.get("reason", "unknown"))
-            feedback_verdicts[verdict] += 1
-            feedback_reasons[reason] += 1
-            feedback_tools[tool][verdict] += 1
+            continue
+        try:
+            timestamp = datetime.fromisoformat(str(event["timestamp"]))
+        except (KeyError, TypeError, ValueError):
             continue
         if timestamp < cutoff:
             continue
+        tool = str(event.get("tool", "unknown"))
         outcome = str(event.get("outcome", "unknown"))
-        is_v2 = event.get("schema_version") == 2
-        source = str(event.get("source", "legacy")) if is_v2 else "legacy"
-        model = str(event.get("model", "unknown")) if is_v2 else "unknown"
-        profile = str(event.get("profile_version", "legacy")) if is_v2 else "legacy"
+        has_metadata = event.get("schema_version") in {2, 4}
+        source = str(event.get("source", "legacy")) if has_metadata else "legacy"
+        model = str(event.get("model", "unknown")) if has_metadata else "unknown"
+        profile = str(event.get("profile_version", "legacy")) if has_metadata else "legacy"
         outcomes[outcome] += 1
         tools[tool][outcome] += 1
         sources[source].append((outcome, event))
@@ -63,6 +79,9 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         if isinstance(duration, (int, float)) and duration >= 0:
             durations.append(float(duration))
 
+    feedback_progress = {
+        tool: sum(feedback_tools.get(tool, {}).values()) for tool in CANARY_TOOL_TARGETS
+    }
     return {
         "period_days": days,
         "events": totals["events"],
@@ -85,7 +104,11 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         "canary_feedback": {
             "target": CANARY_TARGET,
             "reviews": feedback_verdicts.total(),
-            "complete": feedback_verdicts.total() >= CANARY_TARGET,
+            "complete": all(
+                feedback_progress[tool] >= target for tool, target in CANARY_TOOL_TARGETS.items()
+            ),
+            "targets_by_tool": dict(sorted(CANARY_TOOL_TARGETS.items())),
+            "progress_by_tool": dict(sorted(feedback_progress.items())),
             "verdicts": dict(sorted(feedback_verdicts.items())),
             "reasons": dict(sorted(feedback_reasons.items())),
             "by_tool": {
