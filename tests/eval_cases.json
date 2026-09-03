@@ -1,8 +1,8 @@
 [
-  {"name":"case_draft","kind":"test_cases","input":"Guest can submit checkout","expected":"ok"},
-  {"name":"checklist","kind":"test_cases","input":"Requirement: a guest can submit checkout when all mandatory fields are valid. Draft three focused smoke test cases.","expected":"ok"},
-  {"name":"duplicate_case","kind":"test_cases","input":"Requirement: checkout accepts a saved card and a new valid card. Draft two focused test cases with distinct wording.","expected":"ok"},
-  {"name":"negative_cases","kind":"test_cases","input":"Requirement: an empty checkout form shows validation for every mandatory field. Draft two focused negative test cases.","expected":"ok"},
+  {"name":"case_draft","kind":"test_cases","input":"Draft exactly 1 test case.\nREQUIREMENT:\nGuest can submit checkout.\nAPPROVED_COVERAGE_MAP:\n1. Submit checkout with all mandatory fields valid; verify successful submission.","expected":"ok"},
+  {"name":"checklist","kind":"test_cases","input":"Draft exactly 3 test cases.\nREQUIREMENT:\nA guest can submit checkout when all mandatory fields are valid.\nAPPROVED_COVERAGE_MAP:\n1. Submit with every mandatory field valid; verify success.\n2. Submit with one mandatory field empty; verify validation prevents submission.\n3. Correct the invalid field and resubmit; verify success.","expected":"ok"},
+  {"name":"duplicate_case","kind":"test_cases","input":"Draft exactly 2 test cases.\nREQUIREMENT:\nCheckout accepts a saved card and a new valid card.\nAPPROVED_COVERAGE_MAP:\n1. Pay with a saved valid card; verify successful checkout.\n2. Pay with a newly entered valid card; verify successful checkout.","expected":"ok"},
+  {"name":"negative_cases","kind":"test_cases","input":"Draft exactly 2 test cases.\nREQUIREMENT:\nAn empty checkout form shows validation for every mandatory field.\nAPPROVED_COVERAGE_MAP:\n1. Submit an entirely empty form; verify every mandatory field is marked invalid.\n2. Fill only one mandatory field and submit; verify validation remains on every other mandatory field.","expected":"ok"},
   {"name":"log_group","kind":"log_summary","input":"ERROR timeout\nERROR timeout\nWARN retry","expected":"ok"},
   {"name":"log_statuses","kind":"log_summary","input":"HTTP 500 twice\nHTTP 404 once","expected":"ok"},
   {"name":"log_sequence","kind":"log_summary","input":"INFO request started\nWARN request retry\nINFO request succeeded","expected":"ok"},

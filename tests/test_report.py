@@ -138,9 +138,7 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
     assert report["events"] == 2
     assert report["outcomes"] == {"ok": 2}
     assert report["canary_feedback"] == {
-        "target": 50,
-        "reviews": 2,
-        "complete": False,
+        "target_per_profile": 50,
         "targets_by_tool": {
             "automation_skeleton": 10,
             "log_summary": 10,
@@ -149,19 +147,25 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
             "text_summary": 10,
             "translation": 2,
         },
-        "progress_by_tool": {
-            "automation_skeleton": 0,
-            "log_summary": 0,
-            "rewrite": 0,
-            "test_cases": 1,
-            "text_summary": 0,
-            "translation": 1,
-        },
-        "verdicts": {"accepted": 1, "edited": 1},
-        "reasons": {"coverage": 1, "none": 1},
-        "by_tool": {
-            "test_cases": {"edited": 1},
-            "translation": {"accepted": 1},
+        "by_profile": {
+            "router-v7": {
+                "reviews": 2,
+                "complete": False,
+                "progress_by_tool": {
+                    "automation_skeleton": 0,
+                    "log_summary": 0,
+                    "rewrite": 0,
+                    "test_cases": 1,
+                    "text_summary": 0,
+                    "translation": 1,
+                },
+                "verdicts": {"accepted": 1, "edited": 1},
+                "reasons": {"coverage": 1, "none": 1},
+                "by_tool": {
+                    "test_cases": {"edited": 1},
+                    "translation": {"accepted": 1},
+                },
+            }
         },
     }
 
@@ -198,4 +202,131 @@ def test_canary_feedback_progress_is_lifetime_not_weekly():
     )
 
     assert report["events"] == 0
-    assert report["canary_feedback"]["reviews"] == 1
+    assert report["canary_feedback"]["by_profile"]["router-v7"]["reviews"] == 1
+
+
+def test_canary_feedback_keeps_profile_versions_separate():
+    timestamp = datetime.now(UTC).isoformat()
+    lines = []
+    for profile, draft_id, verdict, reason in (
+        ("router-v7", "a" * 32, "accepted", "none"),
+        ("router-v8", "b" * 32, "rejected", "factual"),
+    ):
+        lines.extend(
+            [
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "timestamp": timestamp,
+                        "tool": "test_cases",
+                        "outcome": "ok",
+                        "source": "interactive",
+                        "profile_version": profile,
+                        "draft_id": draft_id,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "event_type": "canary_feedback",
+                        "timestamp": timestamp,
+                        "tool": "test_cases",
+                        "profile_version": profile,
+                        "draft_id": draft_id,
+                        "source": "interactive",
+                        "verdict": verdict,
+                        "reason": reason,
+                    }
+                ),
+            ]
+        )
+
+    profiles = summarize_events(lines)["canary_feedback"]["by_profile"]
+
+    assert profiles["router-v7"]["verdicts"] == {"accepted": 1}
+    assert profiles["router-v8"]["verdicts"] == {"rejected": 1}
+
+
+def test_weekly_report_aggregates_qa_task_outcomes_separately():
+    timestamp = datetime.now(UTC).isoformat()
+    lines = [
+        json.dumps(
+            {
+                "schema_version": 6,
+                "event_type": "qa_task_outcome",
+                "timestamp": timestamp,
+                "task_type": "ordinary_review",
+                "outcome": "completed",
+                "codegraph_calls": 2,
+                "source_mcp_calls": 7,
+                "qwen_used": True,
+                "sol_used": False,
+                "findings_identified": 3,
+                "findings_confirmed": 2,
+                "findings_rejected": 1,
+                "qwen_edits": 1,
+                "repeated_source_reads": 0,
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 6,
+                "event_type": "qa_task_outcome",
+                "timestamp": timestamp,
+                "task_type": "qa_planning",
+                "outcome": "partial",
+                "codegraph_calls": 0,
+                "source_mcp_calls": 3,
+                "qwen_used": False,
+                "sol_used": True,
+                "findings_identified": 1,
+                "findings_confirmed": 1,
+                "findings_rejected": 0,
+                "qwen_edits": 0,
+                "repeated_source_reads": 1,
+            }
+        ),
+    ]
+
+    report = summarize_events(lines)
+
+    assert report["events"] == 0
+    assert report["qa_tasks"] == {
+        "events": 2,
+        "outcomes": {"completed": 1, "partial": 1},
+        "by_task_type": {"ordinary_review": 1, "qa_planning": 1},
+        "codegraph_calls": 2,
+        "source_mcp_calls": 10,
+        "qwen_tasks": 1,
+        "sol_tasks": 1,
+        "findings_identified": 4,
+        "findings_confirmed": 3,
+        "findings_rejected": 1,
+        "qwen_edits": 1,
+        "repeated_source_reads": 1,
+    }
+
+
+def test_weekly_report_ignores_invalid_qa_task_outcomes():
+    timestamp = datetime.now(UTC).isoformat()
+    invalid = {
+        "schema_version": 6,
+        "event_type": "qa_task_outcome",
+        "timestamp": timestamp,
+        "task_type": "ordinary_review",
+        "outcome": "completed",
+        "codegraph_calls": 1,
+        "source_mcp_calls": 0,
+        "qwen_used": False,
+        "sol_used": False,
+        "findings_identified": 0,
+        "findings_confirmed": 1,
+        "findings_rejected": 0,
+        "qwen_edits": 0,
+        "repeated_source_reads": 0,
+    }
+
+    report = summarize_events([json.dumps(invalid)])
+
+    assert report["events"] == 0
+    assert report["qa_tasks"]["events"] == 0

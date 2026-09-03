@@ -9,7 +9,7 @@ from pathlib import Path
 from re import fullmatch
 from typing import IO, Protocol
 
-from qa_router_mcp.contracts import CanaryFeedbackReceipt, GenerationStats
+from qa_router_mcp.contracts import CanaryFeedbackReceipt, GenerationStats, QaTaskOutcomeReceipt
 
 CANARY_TOOL_TARGETS = {
     "test_cases": 15,
@@ -22,6 +22,25 @@ CANARY_TOOL_TARGETS = {
 CANARY_TARGET = sum(CANARY_TOOL_TARGETS.values())
 CANARY_VERDICTS = {"accepted", "edited", "rejected"}
 CANARY_REASONS = {"none", "factual", "coverage", "format", "too_verbose", "other"}
+QA_TASK_TYPES = {
+    "ordinary_review",
+    "widget_review",
+    "epic_analysis",
+    "requirements_analysis",
+    "qa_planning",
+    "autotest_implementation",
+    "other",
+}
+QA_TASK_OUTCOMES = {"completed", "partial", "blocked"}
+QA_TASK_COUNTERS = {
+    "codegraph_calls",
+    "source_mcp_calls",
+    "findings_identified",
+    "findings_confirmed",
+    "findings_rejected",
+    "qwen_edits",
+    "repeated_source_reads",
+}
 
 
 class EventSink(Protocol):
@@ -43,8 +62,6 @@ class EventSink(Protocol):
         draft_id: str | None = None,
     ) -> str | None: ...
 
-    def canary_active(self, tool: str) -> bool: ...
-
     def record_feedback(
         self,
         draft_id: str,
@@ -52,22 +69,12 @@ class EventSink(Protocol):
         reason: str,
     ) -> CanaryFeedbackReceipt: ...
 
+    def record_qa_task_outcome(self, event: dict[str, object]) -> QaTaskOutcomeReceipt: ...
+
 
 class JsonEventSink:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path
-
-    def canary_active(self, tool: str) -> bool:
-        if self.path is None or tool not in CANARY_TOOL_TARGETS:
-            return False
-        try:
-            with self._locked_events() as (_, events):
-                issued = Counter(
-                    str(draft["tool"]) for draft in _issued_canary_drafts(events).values()
-                )
-                return issued[tool] < CANARY_TOOL_TARGETS[tool]
-        except OSError:
-            return False
 
     def emit(
         self,
@@ -124,14 +131,15 @@ class JsonEventSink:
             return self._receipt("invalid", 0)
         try:
             with self._locked_events() as (metrics, events):
-                feedback = validated_canary_feedback(events)
                 issued = _issued_canary_drafts(events)
+                draft = issued.get(draft_id)
+                if draft is None:
+                    return self._receipt("not_found", len(validated_canary_feedback(events)))
+                profile_version = str(draft["profile_version"])
+                feedback = validated_canary_feedback(events, profile_version)
                 feedback_ids = {str(event["draft_id"]) for event in feedback}
                 if draft_id in feedback_ids:
                     return self._receipt("duplicate", len(feedback))
-                draft = issued.get(draft_id)
-                if draft is None:
-                    return self._receipt("not_found", len(feedback))
                 tool = str(draft["tool"])
                 progress = Counter(str(event["tool"]) for event in feedback)
                 if progress[tool] >= CANARY_TOOL_TARGETS[tool]:
@@ -152,6 +160,17 @@ class JsonEventSink:
                 return self._receipt("recorded", len(feedback) + 1)
         except OSError:
             return self._receipt("unavailable", 0)
+
+    def record_qa_task_outcome(self, event: dict[str, object]) -> QaTaskOutcomeReceipt:
+        if self.path is None:
+            return QaTaskOutcomeReceipt(status="unavailable")
+        payload = {
+            **event,
+            "schema_version": 6,
+            "event_type": "qa_task_outcome",
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        return QaTaskOutcomeReceipt(status="recorded" if self._write(payload) else "unavailable")
 
     @staticmethod
     def _receipt(status: str, feedback_count: int) -> CanaryFeedbackReceipt:
@@ -205,8 +224,10 @@ class JsonEventSink:
         try:
             with self._locked_events() as (metrics, events):
                 tool = str(event["tool"])
+                profile_version = str(event["profile_version"])
                 issued = Counter(
-                    str(draft["tool"]) for draft in _issued_canary_drafts(events).values()
+                    str(draft["tool"])
+                    for draft in _issued_canary_drafts(events, profile_version).values()
                 )
                 if tool not in CANARY_TOOL_TARGETS or issued[tool] >= CANARY_TOOL_TARGETS[tool]:
                     self._append_locked(metrics, event)
@@ -221,7 +242,10 @@ class JsonEventSink:
             return None
 
 
-def validated_canary_feedback(events: list[dict[str, object]]) -> list[dict[str, object]]:
+def validated_canary_feedback(
+    events: list[dict[str, object]],
+    profile_version: str | None = None,
+) -> list[dict[str, object]]:
     issued = _issued_canary_drafts(events)
     seen: set[str] = set()
     valid: list[dict[str, object]] = []
@@ -240,6 +264,8 @@ def validated_canary_feedback(events: list[dict[str, object]]) -> list[dict[str,
             continue
         if event.get("profile_version") != draft.get("profile_version"):
             continue
+        if profile_version is not None and event.get("profile_version") != profile_version:
+            continue
         verdict = event.get("verdict")
         reason = event.get("reason")
         if not isinstance(verdict, str) or not isinstance(reason, str):
@@ -253,6 +279,7 @@ def validated_canary_feedback(events: list[dict[str, object]]) -> list[dict[str,
 
 def _issued_canary_drafts(
     events: list[dict[str, object]],
+    profile_version: str | None = None,
 ) -> dict[str, dict[str, object]]:
     issued: dict[str, dict[str, object]] = {}
     for event in events:
@@ -266,6 +293,7 @@ def _issued_canary_drafts(
             and event.get("outcome") == "ok"
             and event.get("source") == "interactive"
             and isinstance(event.get("profile_version"), str)
+            and (profile_version is None or event.get("profile_version") == profile_version)
         ):
             issued[draft_id] = event
     return issued
@@ -293,3 +321,15 @@ def _valid_feedback_values(verdict: str, reason: str) -> bool:
         and reason in CANARY_REASONS
         and ((verdict == "accepted") == (reason == "none"))
     )
+
+
+def valid_qa_task_metrics(event: dict[str, object]) -> bool:
+    if event.get("task_type") not in QA_TASK_TYPES or event.get("outcome") not in QA_TASK_OUTCOMES:
+        return False
+    if type(event.get("qwen_used")) is not bool or type(event.get("sol_used")) is not bool:
+        return False
+    if any(type(event.get(field)) is not int or event[field] < 0 for field in QA_TASK_COUNTERS):
+        return False
+    return event["findings_confirmed"] + event["findings_rejected"] <= event[
+        "findings_identified"
+    ] and (event["qwen_used"] or event["qwen_edits"] == 0)

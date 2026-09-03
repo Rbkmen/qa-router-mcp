@@ -96,6 +96,23 @@ def test_numbered_heading_and_title_field_do_not_count_as_two_cases():
     ) == ["test_cases_missing_title"]
 
 
+def test_extra_test_case_is_rejected():
+    result = DraftEnvelope(
+        draft="\n\n".join(
+            f"Title: Case {number}\nPreconditions: Ready\nSteps: 1. Act\n"
+            f"Expected Result: Result {number}"
+            for number in range(1, 4)
+        ),
+        unverified=[],
+    )
+
+    assert validate_generated_draft(
+        DraftKind.TEST_CASES,
+        "Draft exactly 2 test cases",
+        result,
+    ) == ["test_cases_wrong_count"]
+
+
 def test_markdown_test_case_heading_without_colon_counts_as_title():
     result = DraftEnvelope(
         draft=("## Test Case 1\nPreconditions: Ready\nSteps: 1. Act\nExpected Result: Success"),

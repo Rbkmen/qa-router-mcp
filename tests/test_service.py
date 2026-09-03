@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from qa_router_mcp.backends import BackendError
@@ -149,6 +151,27 @@ async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path):
     event = (tmp_path / "metrics.jsonl").read_text()
     assert '"source":"interactive"' in event
     assert f'"draft_id":"{result.draft_id}"' in event
+
+
+def test_qa_task_event_cannot_override_envelope_fields(tmp_path):
+    metrics_path = tmp_path / "metrics.jsonl"
+    sink = JsonEventSink(metrics_path)
+
+    receipt = sink.record_qa_task_outcome(
+        {
+            "schema_version": 1,
+            "event_type": "generation",
+            "timestamp": "2000-01-01T00:00:00+00:00",
+            "task_type": "other",
+            "outcome": "completed",
+        }
+    )
+
+    event = json.loads(metrics_path.read_text())
+    assert receipt.status == "recorded"
+    assert event["schema_version"] == 6
+    assert event["event_type"] == "qa_task_outcome"
+    assert event["timestamp"] != "2000-01-01T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -320,6 +343,129 @@ def test_event_sink_logs_usage_without_content(capsys, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_service_records_content_free_qa_task_outcome(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    service = RouterService(
+        Settings(data_dir=tmp_path),
+        DraftFake(DraftEnvelope(draft="unused", unverified=[])),
+        JsonEventSink(path),
+    )
+
+    receipt = service.record_qa_task_outcome(
+        task_type="ordinary_review",
+        outcome="completed",
+        codegraph_calls=2,
+        source_mcp_calls=7,
+        qwen_used=True,
+        sol_used=False,
+        findings_identified=3,
+        findings_confirmed=2,
+        findings_rejected=1,
+        qwen_edits=1,
+        repeated_source_reads=0,
+    )
+
+    event = json.loads(path.read_text())
+    assert receipt.status == "recorded"
+    assert event == {
+        "schema_version": 6,
+        "event_type": "qa_task_outcome",
+        "timestamp": event["timestamp"],
+        "task_type": "ordinary_review",
+        "outcome": "completed",
+        "codegraph_calls": 2,
+        "source_mcp_calls": 7,
+        "qwen_used": True,
+        "sol_used": False,
+        "findings_identified": 3,
+        "findings_confirmed": 2,
+        "findings_rejected": 1,
+        "qwen_edits": 1,
+        "repeated_source_reads": 0,
+    }
+    serialized = path.read_text()
+    assert "requirement" not in serialized
+    assert "jira" not in serialized.lower()
+    assert "draft" not in serialized
+
+
+def test_codegraph_and_other_mcp_counters_are_independent(tmp_path):
+    service = RouterService(
+        Settings(data_dir=tmp_path),
+        DraftFake(DraftEnvelope(draft="unused", unverified=[])),
+    )
+
+    receipt = service.record_qa_task_outcome(
+        task_type="other",
+        outcome="completed",
+        codegraph_calls=1,
+        source_mcp_calls=0,
+        qwen_used=False,
+        sol_used=False,
+        findings_identified=0,
+        findings_confirmed=0,
+        findings_rejected=0,
+        qwen_edits=0,
+        repeated_source_reads=0,
+    )
+
+    assert receipt.status == "recorded"
+
+
+def test_qa_task_outcome_is_unavailable_without_metrics_path():
+    receipt = JsonEventSink().record_qa_task_outcome(
+        {
+            "task_type": "ordinary_review",
+            "outcome": "completed",
+            "codegraph_calls": 0,
+            "source_mcp_calls": 0,
+            "qwen_used": False,
+            "sol_used": False,
+            "findings_identified": 0,
+            "findings_confirmed": 0,
+            "findings_rejected": 0,
+            "qwen_edits": 0,
+            "repeated_source_reads": 0,
+        }
+    )
+
+    assert receipt.status == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"codegraph_calls": -1},
+        {"findings_identified": 1, "findings_confirmed": 2},
+        {"qwen_used": False, "qwen_edits": 1},
+        {"task_type": "unknown"},
+        {"outcome": "unknown"},
+    ],
+)
+def test_qa_task_outcome_rejects_inconsistent_counters(tmp_path, overrides):
+    service = RouterService(
+        Settings(data_dir=tmp_path),
+        DraftFake(DraftEnvelope(draft="unused", unverified=[])),
+    )
+    values = {
+        "task_type": "ordinary_review",
+        "outcome": "completed",
+        "codegraph_calls": 1,
+        "source_mcp_calls": 3,
+        "qwen_used": True,
+        "sol_used": False,
+        "findings_identified": 2,
+        "findings_confirmed": 1,
+        "findings_rejected": 1,
+        "qwen_edits": 0,
+        "repeated_source_reads": 0,
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValueError, match="QA task metrics"):
+        service.record_qa_task_outcome(**values)
+
+
 def test_event_sink_records_content_free_canary_feedback(tmp_path):
     path = tmp_path / "metrics.jsonl"
     sink = JsonEventSink(path)
@@ -360,7 +506,7 @@ def test_event_sink_records_content_free_canary_feedback(tmp_path):
     assert "content" not in event
 
 
-def test_canary_uses_global_tool_quotas_across_sink_instances(tmp_path):
+def test_canary_uses_per_profile_tool_quotas_across_sink_instances(tmp_path):
     path = tmp_path / "metrics.jsonl"
     sinks = [JsonEventSink(path) for _ in range(3)]
     draft_ids = [str(index) * 32 for index in range(1, 4)]
@@ -384,8 +530,18 @@ def test_canary_uses_global_tool_quotas_across_sink_instances(tmp_path):
 
     assert first.status == "recorded"
     assert second.status == "recorded"
-    assert sinks[2].canary_active("translation") is False
-    assert sinks[2].canary_active("test_cases") is True
+    next_profile_draft_id = sinks[2].emit(
+        "translation",
+        "ok",
+        1.0,
+        None,
+        profile_version="router-v8",
+        source="interactive",
+        draft_id="4" * 32,
+    )
+    assert next_profile_draft_id == "4" * 32
+    next_profile_feedback = sinks[2].record_feedback("4" * 32, "accepted", "none")
+    assert next_profile_feedback.feedback_count == 1
 
 
 def test_canary_accepts_only_one_feedback_for_an_issued_draft(tmp_path):
@@ -435,7 +591,19 @@ def test_canary_completes_only_after_every_tool_quota(tmp_path):
 
     assert receipt.status == "recorded"
     assert receipt.feedback_count == 50
-    assert all(not sink.canary_active(tool) for tool in CANARY_TOOL_TARGETS)
+    for tool in CANARY_TOOL_TARGETS:
+        assert (
+            sink.emit(
+                tool,
+                "ok",
+                1.0,
+                None,
+                profile_version="router-v7",
+                source="interactive",
+                draft_id="f" * 32,
+            )
+            is None
+        )
 
 
 def test_service_records_feedback_by_draft_id(tmp_path):
@@ -492,7 +660,18 @@ def test_malformed_feedback_does_not_consume_canary_quota(tmp_path):
     events = [json.loads(line) for line in path.read_text().splitlines()]
 
     assert validated_canary_feedback(events) == []
-    assert sink.canary_active("test_cases") is True
+    assert (
+        sink.emit(
+            "test_cases",
+            "ok",
+            1.0,
+            None,
+            profile_version="router-v7",
+            source="interactive",
+            draft_id="b" * 32,
+        )
+        == "b" * 32
+    )
 
 
 @pytest.mark.parametrize(

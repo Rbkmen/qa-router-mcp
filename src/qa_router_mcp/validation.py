@@ -79,6 +79,8 @@ def validate_generated_draft(
         title_matches = title_fields if len(title_fields) >= len(case_headings) else case_headings
         if len(title_matches) < expected:
             issues.append("test_cases_missing_title")
+        elif len(title_matches) > expected:
+            issues.append("test_cases_wrong_count")
         if title_matches:
             blocks = [
                 result.draft[match.start() : next_start]
@@ -130,6 +132,7 @@ def repair_instruction(issues: list[str]) -> str:
         "test_cases_missing_title": (
             "match the requested case count and start every case with Title:"
         ),
+        "test_cases_wrong_count": "return exactly the requested number of test cases",
         "test_cases_missing_preconditions": "include Preconditions in every test case",
         "test_cases_missing_steps": "include Steps in every test case",
         "test_cases_missing_expected_result": ("include Expected Result in every test case"),

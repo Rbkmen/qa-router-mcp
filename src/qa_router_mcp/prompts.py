@@ -2,11 +2,15 @@ from qa_router_mcp.contracts import DraftKind
 
 INSTRUCTIONS = {
     DraftKind.TEST_CASES: (
-        "Draft focused test cases. Match the requested case count exactly. For every case, "
+        "Expand the APPROVED_COVERAGE_MAP into focused test cases without adding, removing, "
+        "merging, or reprioritizing coverage items. Match the requested case count exactly. "
+        "For every case, "
         "repeat exactly these four headings: Title:, Preconditions:, Steps:, Expected Result:. "
         "If the input does not explicitly request a count, draft exactly one case. "
         "Do not add a separate Test Case heading or combine cases. Keep every field concise and "
-        "do not invent authentication, account, payment, or notification behavior."
+        "do not invent authentication, account, payment, or notification behavior. "
+        "Do not invent UI messages, field names, endpoints, test data, or preconditions. "
+        "When a required detail is absent, keep the wording generic and list the gap in unverified."
     ),
     DraftKind.LOG_SUMMARY: (
         "Group visible log signatures; do not infer an unsupported root cause."

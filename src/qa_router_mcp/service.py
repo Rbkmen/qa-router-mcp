@@ -10,8 +10,11 @@ from qa_router_mcp.contracts import (
     DraftEnvelope,
     DraftKind,
     GenerationStats,
+    QaTaskOutcome,
+    QaTaskOutcomeReceipt,
+    QaTaskType,
 )
-from qa_router_mcp.events import EventSink, JsonEventSink
+from qa_router_mcp.events import EventSink, JsonEventSink, valid_qa_task_metrics
 from qa_router_mcp.policy import PolicyError, assert_allowed_request, sanitize_transient
 from qa_router_mcp.prompts import build_prompt
 from qa_router_mcp.validation import repair_instruction, validate_generated_draft
@@ -41,6 +44,38 @@ class RouterService:
             verdict,
             reason,
         )
+
+    def record_qa_task_outcome(
+        self,
+        *,
+        task_type: QaTaskType,
+        outcome: QaTaskOutcome,
+        codegraph_calls: int,
+        source_mcp_calls: int,
+        qwen_used: bool,
+        sol_used: bool,
+        findings_identified: int,
+        findings_confirmed: int,
+        findings_rejected: int,
+        qwen_edits: int,
+        repeated_source_reads: int,
+    ) -> QaTaskOutcomeReceipt:
+        event = {
+            "task_type": task_type,
+            "outcome": outcome,
+            "codegraph_calls": codegraph_calls,
+            "source_mcp_calls": source_mcp_calls,
+            "qwen_used": qwen_used,
+            "sol_used": sol_used,
+            "findings_identified": findings_identified,
+            "findings_confirmed": findings_confirmed,
+            "findings_rejected": findings_rejected,
+            "qwen_edits": qwen_edits,
+            "repeated_source_reads": repeated_source_reads,
+        }
+        if not valid_qa_task_metrics(event):
+            raise ValueError("QA task metrics are inconsistent")
+        return self.events.record_qa_task_outcome(event)
 
     def _record(
         self,

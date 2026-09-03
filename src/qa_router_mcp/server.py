@@ -8,6 +8,9 @@ from qa_router_mcp.contracts import (
     CanaryVerdict,
     DraftEnvelope,
     DraftKind,
+    QaTaskOutcome,
+    QaTaskOutcomeReceipt,
+    QaTaskType,
 )
 from qa_router_mcp.events import JsonEventSink
 from qa_router_mcp.service import RouterService
@@ -19,10 +22,19 @@ def build_server(service: RouterService) -> FastMCP:
     @mcp.tool
     async def draft_test_cases(
         requirement: str,
+        coverage_map: list[str],
         examples: str = "",
     ) -> DraftEnvelope:
-        """Draft focused unverified test cases from a bounded sanitized requirement."""
-        content = requirement if not examples else f"{requirement}\nEXAMPLES:\n{examples}"
+        """Expand an approved coverage map into focused unverified test-case drafts."""
+        if not 1 <= len(coverage_map) <= 12 or any(not item.strip() for item in coverage_map):
+            raise ValueError("coverage_map must contain 1-12 non-empty items")
+        coverage = "\n".join(f"{index}. {item}" for index, item in enumerate(coverage_map, 1))
+        content = (
+            f"Draft exactly {len(coverage_map)} test cases.\n"
+            f"REQUIREMENT:\n{requirement}\nAPPROVED_COVERAGE_MAP:\n{coverage}"
+        )
+        if examples:
+            content += f"\nEXAMPLES:\n{examples}"
         return await service.draft(DraftKind.TEST_CASES, content)
 
     @mcp.tool
@@ -81,6 +93,35 @@ def build_server(service: RouterService) -> FastMCP:
     ) -> CanaryFeedbackReceipt:
         """Record content-free review feedback when a local draft requests it."""
         return service.record_canary_feedback(draft_id, verdict, reason)
+
+    @mcp.tool
+    async def record_qa_task_outcome(
+        task_type: QaTaskType,
+        outcome: QaTaskOutcome,
+        codegraph_calls: int,
+        source_mcp_calls: int,
+        qwen_used: bool,
+        sol_used: bool,
+        findings_identified: int,
+        findings_confirmed: int,
+        findings_rejected: int,
+        qwen_edits: int,
+        repeated_source_reads: int,
+    ) -> QaTaskOutcomeReceipt:
+        """Record one content-free outcome after a completed or stopped QA task."""
+        return service.record_qa_task_outcome(
+            task_type=task_type,
+            outcome=outcome,
+            codegraph_calls=codegraph_calls,
+            source_mcp_calls=source_mcp_calls,
+            qwen_used=qwen_used,
+            sol_used=sol_used,
+            findings_identified=findings_identified,
+            findings_confirmed=findings_confirmed,
+            findings_rejected=findings_rejected,
+            qwen_edits=qwen_edits,
+            repeated_source_reads=repeated_source_reads,
+        )
 
     return mcp
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from qa_router_mcp.events import (
     CANARY_TARGET,
     CANARY_TOOL_TARGETS,
+    valid_qa_task_metrics,
     validated_canary_feedback,
 )
 
@@ -19,11 +20,12 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     sources: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
     models: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
     profiles: dict[str, list[tuple[str, dict[str, object]]]] = defaultdict(list)
-    feedback_verdicts: Counter[str] = Counter()
-    feedback_reasons: Counter[str] = Counter()
-    feedback_tools: dict[str, Counter[str]] = defaultdict(Counter)
+    feedback_by_profile: dict[str, list[dict[str, object]]] = defaultdict(list)
     totals = Counter()
     durations: list[float] = []
+    qa_task_outcomes: Counter[str] = Counter()
+    qa_task_types: Counter[str] = Counter()
+    qa_task_totals = Counter()
 
     events: list[dict[str, object]] = []
     for line in lines:
@@ -36,12 +38,7 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
 
     feedback = validated_canary_feedback(events)
     for event in feedback:
-        tool = str(event["tool"])
-        verdict = str(event.get("verdict", "unknown"))
-        reason = str(event.get("reason", "unknown"))
-        feedback_verdicts[verdict] += 1
-        feedback_reasons[reason] += 1
-        feedback_tools[tool][verdict] += 1
+        feedback_by_profile[str(event["profile_version"])].append(event)
 
     for event in events:
         if event.get("event_type") == "canary_feedback":
@@ -51,6 +48,27 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         except (KeyError, TypeError, ValueError):
             continue
         if timestamp < cutoff:
+            continue
+        if event.get("event_type") == "qa_task_outcome":
+            if event.get("schema_version") != 6 or not valid_qa_task_metrics(event):
+                continue
+            qa_task_outcomes[str(event.get("outcome", "unknown"))] += 1
+            qa_task_types[str(event.get("task_type", "unknown"))] += 1
+            qa_task_totals["events"] += 1
+            qa_task_totals["qwen_tasks"] += event.get("qwen_used") is True
+            qa_task_totals["sol_tasks"] += event.get("sol_used") is True
+            for field in (
+                "codegraph_calls",
+                "source_mcp_calls",
+                "findings_identified",
+                "findings_confirmed",
+                "findings_rejected",
+                "qwen_edits",
+                "repeated_source_reads",
+            ):
+                value = event.get(field, 0)
+                if type(value) is int and value >= 0:
+                    qa_task_totals[field] += value
             continue
         tool = str(event.get("tool", "unknown"))
         outcome = str(event.get("outcome", "unknown"))
@@ -79,9 +97,6 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         if isinstance(duration, (int, float)) and duration >= 0:
             durations.append(float(duration))
 
-    feedback_progress = {
-        tool: sum(feedback_tools.get(tool, {}).values()) for tool in CANARY_TOOL_TARGETS
-    }
     return {
         "period_days": days,
         "events": totals["events"],
@@ -102,19 +117,50 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         "by_model": _dimension_summary(models),
         "by_profile": _dimension_summary(profiles),
         "canary_feedback": {
-            "target": CANARY_TARGET,
-            "reviews": feedback_verdicts.total(),
-            "complete": all(
-                feedback_progress[tool] >= target for tool, target in CANARY_TOOL_TARGETS.items()
-            ),
+            "target_per_profile": CANARY_TARGET,
             "targets_by_tool": dict(sorted(CANARY_TOOL_TARGETS.items())),
-            "progress_by_tool": dict(sorted(feedback_progress.items())),
-            "verdicts": dict(sorted(feedback_verdicts.items())),
-            "reasons": dict(sorted(feedback_reasons.items())),
-            "by_tool": {
-                tool: dict(sorted(verdicts.items()))
-                for tool, verdicts in sorted(feedback_tools.items())
+            "by_profile": {
+                profile: _canary_profile_summary(entries)
+                for profile, entries in sorted(feedback_by_profile.items())
             },
+        },
+        "qa_tasks": {
+            "events": qa_task_totals["events"],
+            "outcomes": dict(sorted(qa_task_outcomes.items())),
+            "by_task_type": dict(sorted(qa_task_types.items())),
+            "codegraph_calls": qa_task_totals["codegraph_calls"],
+            "source_mcp_calls": qa_task_totals["source_mcp_calls"],
+            "qwen_tasks": qa_task_totals["qwen_tasks"],
+            "sol_tasks": qa_task_totals["sol_tasks"],
+            "findings_identified": qa_task_totals["findings_identified"],
+            "findings_confirmed": qa_task_totals["findings_confirmed"],
+            "findings_rejected": qa_task_totals["findings_rejected"],
+            "qwen_edits": qa_task_totals["qwen_edits"],
+            "repeated_source_reads": qa_task_totals["repeated_source_reads"],
+        },
+    }
+
+
+def _canary_profile_summary(events: list[dict[str, object]]) -> dict[str, object]:
+    verdicts: Counter[str] = Counter()
+    reasons: Counter[str] = Counter()
+    tools: dict[str, Counter[str]] = defaultdict(Counter)
+    for event in events:
+        tool = str(event["tool"])
+        verdict = str(event["verdict"])
+        verdicts[verdict] += 1
+        reasons[str(event["reason"])] += 1
+        tools[tool][verdict] += 1
+    progress = {tool: sum(tools.get(tool, {}).values()) for tool in CANARY_TOOL_TARGETS}
+    return {
+        "reviews": verdicts.total(),
+        "complete": all(progress[tool] >= target for tool, target in CANARY_TOOL_TARGETS.items()),
+        "progress_by_tool": dict(sorted(progress.items())),
+        "verdicts": dict(sorted(verdicts.items())),
+        "reasons": dict(sorted(reasons.items())),
+        "by_tool": {
+            tool: dict(sorted(tool_verdicts.items()))
+            for tool, tool_verdicts in sorted(tools.items())
         },
     }
 

@@ -29,8 +29,13 @@ async def test_synthetic_draft_and_secret_refusal_against_live_lmstudio(tmp_path
     draft = await service.draft(
         DraftKind.TEST_CASES,
         (
-            "Synthetic demo: a guest checkout form accepts a valid card and shows a "
-            "validation error for an expired card. Draft three focused test cases."
+            "Draft exactly 3 test cases.\n"
+            "REQUIREMENT:\n"
+            "A guest checkout form accepts a valid card and rejects an expired card.\n"
+            "APPROVED_COVERAGE_MAP:\n"
+            "1. Submit a valid card; verify checkout succeeds.\n"
+            "2. Submit an expired card; verify validation prevents checkout.\n"
+            "3. Replace an expired card with a valid card; verify checkout succeeds."
         ),
     )
     refusal = await service.draft(

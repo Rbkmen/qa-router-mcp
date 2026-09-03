@@ -26,7 +26,7 @@ class DraftFake:
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_seven_drafting_tools_and_canary_feedback(tmp_path):
+async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
     drafting = DraftFake()
     service = RouterService(Settings(data_dir=tmp_path), drafting)
 
@@ -41,13 +41,19 @@ async def test_server_exposes_seven_drafting_tools_and_canary_feedback(tmp_path)
             "explain_short",
             "summarize_text",
             "record_canary_feedback",
+            "record_qa_task_outcome",
         }
 
         result = await client.call_tool(
             "draft_test_cases",
-            {"requirement": "Guest checkout"},
+            {
+                "requirement": "Guest checkout",
+                "coverage_map": ["Happy path from confirmed requirement"],
+            },
         )
         assert result.structured_content["status"] == "ok"
+        assert "APPROVED_COVERAGE_MAP" in drafting.prompts[0]
+        assert "1. Happy path from confirmed requirement" in drafting.prompts[0]
 
         feedback = await client.call_tool(
             "record_canary_feedback",
@@ -62,6 +68,24 @@ async def test_server_exposes_seven_drafting_tools_and_canary_feedback(tmp_path)
             "feedback_count": 1,
             "target": 50,
         }
+
+        task_outcome = await client.call_tool(
+            "record_qa_task_outcome",
+            {
+                "task_type": "ordinary_review",
+                "outcome": "completed",
+                "codegraph_calls": 1,
+                "source_mcp_calls": 4,
+                "qwen_used": True,
+                "sol_used": False,
+                "findings_identified": 2,
+                "findings_confirmed": 1,
+                "findings_rejected": 1,
+                "qwen_edits": 1,
+                "repeated_source_reads": 0,
+            },
+        )
+        assert task_outcome.structured_content == {"status": "recorded"}
 
 
 @pytest.mark.asyncio

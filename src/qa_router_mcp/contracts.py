@@ -6,6 +6,16 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 type CanaryVerdict = Literal["accepted", "edited", "rejected"]
 type CanaryReason = Literal["none", "factual", "coverage", "format", "too_verbose", "other"]
+type QaTaskType = Literal[
+    "ordinary_review",
+    "widget_review",
+    "epic_analysis",
+    "requirements_analysis",
+    "qa_planning",
+    "autotest_implementation",
+    "other",
+]
+type QaTaskOutcome = Literal["completed", "partial", "blocked"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,3 +76,7 @@ class CanaryFeedbackReceipt(BaseModel):
     status: Literal["recorded", "complete", "duplicate", "not_found", "unavailable", "invalid"]
     feedback_count: int
     target: int
+
+
+class QaTaskOutcomeReceipt(BaseModel):
+    status: Literal["recorded", "unavailable"]
