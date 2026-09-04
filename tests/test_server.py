@@ -33,7 +33,8 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
     service = RouterService(Settings(data_dir=tmp_path), drafting)
 
     async with Client(build_server(service)) as client:
-        names = {tool.name for tool in await client.list_tools()}
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        names = set(tools)
         assert names == {
             "draft_test_cases",
             "summarize_logs",
@@ -45,6 +46,12 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
             "record_canary_feedback",
             "record_qa_task_outcome",
         }
+        outcome_fields = tools["record_qa_task_outcome"].inputSchema["properties"]
+        assert {
+            "codegraph_response_tokens",
+            "source_mcp_response_tokens",
+            "avoided_source_read_tokens",
+        } <= outcome_fields.keys()
 
         result = await client.call_tool(
             "draft_test_cases",
