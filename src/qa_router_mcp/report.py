@@ -53,6 +53,8 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             timestamp = datetime.fromisoformat(str(event["timestamp"]))
         except (KeyError, TypeError, ValueError):
             continue
+        if timestamp.tzinfo is None:
+            continue
         if timestamp < cutoff:
             continue
         if event.get("event_type") == "qa_task_outcome":

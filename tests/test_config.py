@@ -20,6 +20,8 @@ def test_settings_use_pinned_safe_defaults(monkeypatch):
     assert settings.max_parallel == 1
     assert settings.context_reserve_tokens == 512
     assert settings.metrics_source == "interactive"
+    assert settings.metrics_retention_days == 30
+    assert settings.metrics_max_events == 10_000
     assert settings.profile_version == "router-v10"
     assert settings.input_limit(DraftKind.SHORT_EXPLANATION) == 6_000
     assert settings.input_limit(DraftKind.LOG_SUMMARY) == 40_000
@@ -104,6 +106,10 @@ def test_unpinned_model_or_unknown_metrics_source_is_rejected():
         Settings(model="another-model")
     with pytest.raises(ValueError, match="metrics source"):
         Settings(metrics_source="unknown")
+    with pytest.raises(ValueError, match="metrics retention"):
+        Settings(metrics_retention_days=0)
+    with pytest.raises(ValueError, match="metrics retention"):
+        Settings(metrics_max_events=0)
 
 
 def test_qwen_is_the_only_allowed_local_model():

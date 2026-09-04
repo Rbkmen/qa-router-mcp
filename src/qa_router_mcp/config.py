@@ -46,6 +46,8 @@ class Settings:
     ttl_seconds: int = 300
     context_reserve_tokens: int = 512
     metrics_source: str = "interactive"
+    metrics_retention_days: int = 30
+    metrics_max_events: int = 10_000
     profile_version: str = "router-v10"
     data_dir: Path = Path.home() / ".qa-router"
 
@@ -103,6 +105,8 @@ class Settings:
             raise ValueError("context reserve must fit the verified context")
         if self.metrics_source not in METRICS_SOURCES:
             raise ValueError("metrics source must be interactive, benchmark, or smoke")
+        if self.metrics_retention_days < 1 or self.metrics_max_events < 1:
+            raise ValueError("metrics retention must be positive")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -129,5 +133,11 @@ class Settings:
                 environ.get("QA_ROUTER_CONTEXT_RESERVE", str(defaults.context_reserve_tokens))
             ),
             metrics_source=environ.get("QA_ROUTER_METRICS_SOURCE", defaults.metrics_source),
+            metrics_retention_days=int(
+                environ.get("QA_ROUTER_METRICS_RETENTION_DAYS", str(defaults.metrics_retention_days))
+            ),
+            metrics_max_events=int(
+                environ.get("QA_ROUTER_METRICS_MAX_EVENTS", str(defaults.metrics_max_events))
+            ),
             data_dir=data_dir,
         )

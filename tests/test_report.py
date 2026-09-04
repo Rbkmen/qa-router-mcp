@@ -403,3 +403,11 @@ def test_weekly_report_ignores_invalid_qa_task_outcomes():
 
     assert report["events"] == 0
     assert report["qa_tasks"]["events"] == 0
+
+
+def test_weekly_report_ignores_naive_timestamps():
+    report = summarize_events(
+        [json.dumps({"timestamp": "2026-09-04T12:00:00", "tool": "rewrite", "outcome": "ok"})]
+    )
+
+    assert report["events"] == 0

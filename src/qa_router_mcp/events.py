@@ -3,7 +3,7 @@ import sys
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from re import fullmatch
@@ -90,8 +90,15 @@ class EventSink(Protocol):
 
 
 class JsonEventSink:
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        retention_days: int = 30,
+        max_events: int = 10_000,
+    ) -> None:
         self.path = path
+        self.retention_days = retention_days
+        self.max_events = max_events
 
     def emit(
         self,
@@ -192,7 +199,7 @@ class JsonEventSink:
                     "verdict": verdict,
                     "reason": reason,
                 }
-                self._append_locked(metrics, event)
+                self._append_locked(metrics, events, event)
                 print(_serialize(event), file=sys.stderr, flush=True)
                 return self._receipt("recorded", len(feedback) + 1)
         except OSError:
@@ -243,10 +250,21 @@ class JsonEventSink:
             finally:
                 flock(metrics.fileno(), LOCK_UN)
 
-    @staticmethod
-    def _append_locked(metrics: IO[str], event: dict[str, object]) -> None:
-        metrics.seek(0, 2)
-        metrics.write(_serialize(event) + "\n")
+    def _append_locked(
+        self,
+        metrics: IO[str],
+        events: list[dict[str, object]],
+        event: dict[str, object],
+    ) -> None:
+        cutoff = datetime.now(UTC) - timedelta(days=self.retention_days)
+        retained = []
+        for item in [*events, event]:
+            timestamp = _event_timestamp(item)
+            if timestamp is not None and timestamp >= cutoff:
+                retained.append(item)
+        metrics.seek(0)
+        metrics.truncate()
+        metrics.write("".join(_serialize(item) + "\n" for item in retained[-self.max_events :]))
         metrics.flush()
 
     def _write(self, event: dict[str, object]) -> bool:
@@ -255,8 +273,8 @@ class JsonEventSink:
         if self.path is None:
             return True
         try:
-            with self._locked_events() as (metrics, _):
-                self._append_locked(metrics, event)
+            with self._locked_events() as (metrics, events):
+                self._append_locked(metrics, events, event)
             return True
         except OSError:
             return False
@@ -281,11 +299,11 @@ class JsonEventSink:
                     tool not in CANARY_TOOL_TARGETS
                     or issued[tool] >= CANARY_TOOL_TARGETS[tool]
                 ):
-                    self._append_locked(metrics, event)
+                    self._append_locked(metrics, events, event)
                     print(_serialize(event), file=sys.stderr, flush=True)
                     return None
                 event["draft_id"] = draft_id
-                self._append_locked(metrics, event)
+                self._append_locked(metrics, events, event)
                 print(_serialize(event), file=sys.stderr, flush=True)
                 return draft_id
         except OSError:
@@ -359,6 +377,14 @@ def _parse_events(metrics: IO[str]) -> list[dict[str, object]]:
         if isinstance(event, dict):
             events.append(event)
     return events
+
+
+def _event_timestamp(event: dict[str, object]) -> datetime | None:
+    try:
+        timestamp = datetime.fromisoformat(str(event["timestamp"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
 
 
 def _serialize(event: dict[str, object]) -> str:

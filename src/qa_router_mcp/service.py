@@ -31,7 +31,11 @@ class RouterService:
     ) -> None:
         self.settings = settings
         self.drafting = drafting
-        self.events = events or JsonEventSink(settings.metrics_path)
+        self.events = events or JsonEventSink(
+            settings.metrics_path,
+            settings.metrics_retention_days,
+            settings.metrics_max_events,
+        )
         self._last_generation_finished: float | None = None
 
     def record_canary_feedback(

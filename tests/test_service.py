@@ -530,6 +530,29 @@ def test_qa_task_outcome_is_unavailable_without_metrics_path():
     assert receipt.status == "unavailable"
 
 
+def test_metrics_retention_prunes_expired_and_excess_events(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2020-01-01T00:00:00+00:00",
+                "tool": "rewrite",
+                "outcome": "ok",
+            }
+        )
+        + "\n"
+    )
+    sink = JsonEventSink(path, retention_days=1, max_events=2)
+
+    for _ in range(3):
+        sink.emit("rewrite", "ok", 1, None)
+
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+
+    assert len(events) == 2
+    assert all(event["timestamp"] != "2020-01-01T00:00:00+00:00" for event in events)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

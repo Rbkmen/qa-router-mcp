@@ -140,6 +140,8 @@ The launcher uses safe defaults and accepts these environment variables:
 | `QA_ROUTER_TTL_SECONDS` | `300` |
 | `QA_ROUTER_CONTEXT_RESERVE` | `512` |
 | `QA_ROUTER_DATA_DIR` | `$HOME/.qa-router` |
+| `QA_ROUTER_METRICS_RETENTION_DAYS` | `30` |
+| `QA_ROUTER_METRICS_MAX_EVENTS` | `10000` |
 
 The model, context, loopback endpoint, and single-generation parallelism are pinned to the verified profile.
 
@@ -154,7 +156,7 @@ The model, context, loopback endpoint, and single-generation parallelism are pin
 
 ## Metrics
 
-Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Prompt text, generated drafts, issue keys, code, logs, and paths are not recorded.
+Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Prompt text, generated drafts, issue keys, code, logs, and paths are not recorded. The file retains the latest 30 days and at most 10,000 events by default.
 
 The router records model loading, tokenization, generation, validation, repair, and total latency separately. For LM Studio, `cold_start_likely` is based on the loaded-model list immediately before acquisition; `model_load_ms` measures that cold acquisition. Alternate test backends fall back to a process-local idle-time heuristic.
 

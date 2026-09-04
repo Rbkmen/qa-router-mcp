@@ -1,8 +1,8 @@
 import json
 from datetime import UTC, datetime
 
-from qa_router_mcp.report import summarize_events
 from qa_router_mcp.events import valid_qa_task_metrics
+from qa_router_mcp.report import summarize_events
 
 
 def test_report_aggregates_codegraph_token_estimate():

@@ -164,6 +164,10 @@ def main() -> None:
     service = RouterService(
         settings,
         LMStudioDraftBackend(settings),
-        JsonEventSink(settings.metrics_path),
+        JsonEventSink(
+            settings.metrics_path,
+            settings.metrics_retention_days,
+            settings.metrics_max_events,
+        ),
     )
     build_server(service).run()
