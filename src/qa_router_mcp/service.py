@@ -62,8 +62,11 @@ class RouterService:
         findings_rejected: int,
         qwen_edits: int,
         repeated_source_reads: int,
+        codegraph_response_tokens: int | None = None,
+        source_mcp_response_tokens: int | None = None,
+        avoided_source_read_tokens: int | None = None,
     ) -> QaTaskOutcomeReceipt:
-        event = {
+        event: dict[str, object] = {
             "task_type": task_type,
             "outcome": outcome,
             "codegraph_calls": codegraph_calls,
@@ -76,6 +79,13 @@ class RouterService:
             "qwen_edits": qwen_edits,
             "repeated_source_reads": repeated_source_reads,
         }
+        for field, value in (
+            ("codegraph_response_tokens", codegraph_response_tokens),
+            ("source_mcp_response_tokens", source_mcp_response_tokens),
+            ("avoided_source_read_tokens", avoided_source_read_tokens),
+        ):
+            if value is not None:
+                event[field] = value
         if not valid_qa_task_metrics(event):
             raise ValueError("QA task metrics are inconsistent")
         return self.events.record_qa_task_outcome(event)

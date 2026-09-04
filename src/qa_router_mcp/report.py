@@ -8,6 +8,7 @@ from pathlib import Path
 from qa_router_mcp.events import (
     CANARY_TARGET,
     CANARY_TOOL_TARGETS,
+    QA_TASK_TOKEN_COUNTERS,
     valid_qa_task_metrics,
     validated_canary_feedback,
 )
@@ -55,13 +56,15 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         if timestamp < cutoff:
             continue
         if event.get("event_type") == "qa_task_outcome":
-            if event.get("schema_version") != 6 or not valid_qa_task_metrics(event):
+            if event.get("schema_version") not in {6, 7} or not valid_qa_task_metrics(event):
                 continue
             qa_task_outcomes[str(event.get("outcome", "unknown"))] += 1
             qa_task_types[str(event.get("task_type", "unknown"))] += 1
             qa_task_totals["events"] += 1
             qa_task_totals["qwen_tasks"] += event.get("qwen_used") is True
             qa_task_totals["sol_tasks"] += event.get("sol_used") is True
+            qa_task_totals["codegraph_tasks"] += event.get("codegraph_calls", 0) > 0
+            qa_task_totals["complete_token_measurement_tasks"] += QA_TASK_TOKEN_COUNTERS <= event.keys()
             for field in (
                 "codegraph_calls",
                 "source_mcp_calls",
@@ -70,6 +73,9 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
                 "findings_rejected",
                 "qwen_edits",
                 "repeated_source_reads",
+                "codegraph_response_tokens",
+                "source_mcp_response_tokens",
+                "avoided_source_read_tokens",
             ):
                 value = event.get(field, 0)
                 if type(value) is int and value >= 0:
@@ -167,6 +173,18 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             "findings_rejected": qa_task_totals["findings_rejected"],
             "qwen_edits": qa_task_totals["qwen_edits"],
             "repeated_source_reads": qa_task_totals["repeated_source_reads"],
+            "codegraph": {
+                "tasks": qa_task_totals["codegraph_tasks"],
+                "calls": qa_task_totals["codegraph_calls"],
+                "response_tokens": qa_task_totals["codegraph_response_tokens"],
+                "avoided_source_read_tokens": qa_task_totals["avoided_source_read_tokens"],
+                "estimated_source_token_savings_pct": _savings_percent(
+                    qa_task_totals["avoided_source_read_tokens"],
+                    qa_task_totals["source_mcp_response_tokens"],
+                ),
+            },
+            "source_mcp_response_tokens": qa_task_totals["source_mcp_response_tokens"],
+            "complete_token_measurement_tasks": qa_task_totals["complete_token_measurement_tasks"],
         },
     }
 
@@ -236,6 +254,11 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     ordered = sorted(values)
     index = max(0, min(len(ordered) - 1, round((len(ordered) - 1) * percentile)))
     return round(ordered[index], 2)
+
+
+def _savings_percent(avoided_tokens: int, source_tokens: int) -> float | None:
+    total = avoided_tokens + source_tokens
+    return round(avoided_tokens / total * 100, 1) if total else None
 
 
 def main() -> None:

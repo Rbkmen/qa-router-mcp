@@ -43,6 +43,11 @@ QA_TASK_COUNTERS = {
     "qwen_edits",
     "repeated_source_reads",
 }
+QA_TASK_TOKEN_COUNTERS = {
+    "codegraph_response_tokens",
+    "source_mcp_response_tokens",
+    "avoided_source_read_tokens",
+}
 
 
 class EventSink(Protocol):
@@ -198,7 +203,7 @@ class JsonEventSink:
             return QaTaskOutcomeReceipt(status="unavailable")
         payload = {
             **event,
-            "schema_version": 6,
+            "schema_version": 7,
             "event_type": "qa_task_outcome",
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -374,6 +379,20 @@ def valid_qa_task_metrics(event: dict[str, object]) -> bool:
     if type(event.get("qwen_used")) is not bool or type(event.get("sol_used")) is not bool:
         return False
     if any(type(event.get(field)) is not int or event[field] < 0 for field in QA_TASK_COUNTERS):
+        return False
+    if any(
+        field in event and (type(event[field]) is not int or event[field] < 0)
+        for field in QA_TASK_TOKEN_COUNTERS
+    ):
+        return False
+    if event["codegraph_calls"] == 0 and any(
+        event.get(field, 0) > 0
+        for field in ("codegraph_response_tokens", "avoided_source_read_tokens")
+    ):
+        return False
+    if event["source_mcp_calls"] == 0 and event.get("source_mcp_response_tokens", 0) > 0:
+        return False
+    if event["repeated_source_reads"] > event["source_mcp_calls"]:
         return False
     return event["findings_confirmed"] + event["findings_rejected"] <= event[
         "findings_identified"

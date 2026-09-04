@@ -81,6 +81,8 @@ When `shadow_evaluation_required` is true, create a separate host-agent baseline
 
 After every QA task reaches `completed`, `partial`, or `blocked`, call `record_qa_task_outcome` exactly once. Send counters and booleans only; never include ticket IDs, titles, source text, code, logs, paths, or draft content. `source_mcp_calls` counts Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence retrieval only; exclude CodeGraph, QA Router calls, and the outcome call itself.
 
+When measurable, also send token counters: `codegraph_response_tokens`, `source_mcp_response_tokens`, and `avoided_source_read_tokens`. They are aggregate counts only. Omit a counter when it cannot be measured; `0` means it was measured and its actual value was zero. `avoided_source_read_tokens` is an estimate of source output that was not retrieved because CodeGraph answered the same bounded question; do not report it as an exact counterfactual.
+
 ## Optional deep analysis
 
 Deep-analysis agents are client-owned and are not part of QA Router. A host may use one bounded read-only specialist for difficult cross-repository reasoning, conflicting evidence, security-sensitive work, or high-blast-radius edge cases. The host still makes the final decision.

@@ -39,7 +39,7 @@ When `shadow_evaluation_required` is true, independently draft a Terra baseline 
 
 Codex owns Jira/MR/diff analysis, current facts, the Evidence Packet, final coverage, severity, release readiness, code changes, QA outcome metrics, and every external-system action. Continue in Terra when local routing refuses or falls back.
 
-After a QA task completes or stops with a final `partial` or `blocked` result, call `record_qa_task_outcome` exactly once. Record exact content-free counters only. Count source retrieval calls to Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence in `source_mcp_calls`; exclude CodeGraph, QA Router, and the metrics call itself.
+After a QA task completes or stops with a final `partial` or `blocked` result, call `record_qa_task_outcome` exactly once. Record exact content-free counters only. Count source retrieval calls to Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence in `source_mcp_calls`; exclude CodeGraph, QA Router, and the metrics call itself. When available, include aggregate `codegraph_response_tokens`, `source_mcp_response_tokens`, and estimated `avoided_source_read_tokens`; omit a token counter when it cannot be measured.
 
 Never include credentials, cookies, tokens, personal or payment data, complete repositories, or unrestricted corporate documents.
 If a local route refuses with `sensitive_data_detected`, reduce and sanitize the packet in Codex; do not weaken or bypass the check.

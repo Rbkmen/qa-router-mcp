@@ -172,7 +172,7 @@ def test_qa_task_event_cannot_override_envelope_fields(tmp_path):
 
     event = json.loads(metrics_path.read_text())
     assert receipt.status == "recorded"
-    assert event["schema_version"] == 6
+    assert event["schema_version"] == 7
     assert event["event_type"] == "qa_task_outcome"
     assert event["timestamp"] != "2000-01-01T00:00:00+00:00"
 
@@ -466,7 +466,7 @@ def test_service_records_content_free_qa_task_outcome(tmp_path):
     event = json.loads(path.read_text())
     assert receipt.status == "recorded"
     assert event == {
-        "schema_version": 6,
+        "schema_version": 7,
         "event_type": "qa_task_outcome",
         "timestamp": event["timestamp"],
         "task_type": "ordinary_review",

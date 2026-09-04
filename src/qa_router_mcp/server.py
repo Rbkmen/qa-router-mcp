@@ -134,6 +134,9 @@ def build_server(service: RouterService) -> FastMCP:
         findings_rejected: int,
         qwen_edits: int,
         repeated_source_reads: int,
+        codegraph_response_tokens: int | None = None,
+        source_mcp_response_tokens: int | None = None,
+        avoided_source_read_tokens: int | None = None,
     ) -> QaTaskOutcomeReceipt:
         """Record one content-free outcome after a completed or stopped QA task."""
         return service.record_qa_task_outcome(
@@ -148,6 +151,9 @@ def build_server(service: RouterService) -> FastMCP:
             findings_rejected=findings_rejected,
             qwen_edits=qwen_edits,
             repeated_source_reads=repeated_source_reads,
+            codegraph_response_tokens=codegraph_response_tokens,
+            source_mcp_response_tokens=source_mcp_response_tokens,
+            avoided_source_read_tokens=avoided_source_read_tokens,
         )
 
     return mcp

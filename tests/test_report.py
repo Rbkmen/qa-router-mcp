@@ -368,6 +368,15 @@ def test_weekly_report_aggregates_qa_task_outcomes_separately():
         "findings_rejected": 1,
         "qwen_edits": 1,
         "repeated_source_reads": 1,
+        "codegraph": {
+            "tasks": 1,
+            "calls": 2,
+            "response_tokens": 0,
+            "avoided_source_read_tokens": 0,
+            "estimated_source_token_savings_pct": None,
+        },
+        "source_mcp_response_tokens": 0,
+        "complete_token_measurement_tasks": 0,
     }
 
 
