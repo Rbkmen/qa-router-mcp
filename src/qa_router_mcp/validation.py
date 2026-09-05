@@ -103,6 +103,8 @@ def validate_generated_draft(
             for field, pattern in FIELD_PATTERNS.items():
                 if field != "title" and any(not pattern.search(block) for block in blocks):
                     issues.append(f"test_cases_missing_{field}")
+                if any(_has_empty_field(block, pattern) for block in blocks):
+                    issues.append(f"test_cases_empty_{field}")
         else:
             issues.extend(
                 f"test_cases_missing_{field}" for field in FIELD_PATTERNS if field != "title"
@@ -113,6 +115,19 @@ def validate_generated_draft(
         issues.append("automation_external_write")
 
     return issues
+
+
+def _has_empty_field(block: str, pattern: re.Pattern[str]) -> bool:
+    boundaries = sorted(
+        match.start()
+        for boundary in (*FIELD_PATTERNS.values(), COVERAGE_ID, CASE_HEADING)
+        for match in boundary.finditer(block)
+    )
+    for match in pattern.finditer(block):
+        end = next((start for start in boundaries if start >= match.end()), len(block))
+        if not block[match.end() : end].strip():
+            return True
+    return False
 
 
 def requested_case_count(text: str) -> int:
@@ -139,6 +154,10 @@ def requested_case_count(text: str) -> int:
 
 def repair_instruction(issues: list[str]) -> str:
     descriptions = {
+        **{
+            f"test_cases_empty_{field}": f"provide non-empty {field} content in every test case"
+            for field in FIELD_PATTERNS
+        },
         "test_cases_missing_title": (
             "match the requested case count and start every case with Title:"
         ),

@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
@@ -25,6 +27,52 @@ class DraftFake:
             ),
             unverified=["Review locally"],
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [True, False])
+async def test_numeric_coverage_ids_survive_full_tool_flow(tmp_path, legacy):
+    class CoverageEcho(DraftFake):
+        async def generate(self, prompt, **kwargs):
+            self.prompts.append(prompt)
+            ids = re.findall(r"(?m)^Coverage ID: (COV-\d+)$", prompt)
+            return DraftEnvelope(
+                draft="\n\n".join(
+                    f"Coverage ID: {item}\nTitle: Case\nPreconditions: Ready\n"
+                    "Steps: Open form\nExpected Result: Form is shown"
+                    for item in ids
+                )
+                or "No coverage IDs"
+            )
+
+    drafting = CoverageEcho()
+    coverage = (
+        ["Open form", "Close form"]
+        if legacy
+        else [
+            {
+                "coverage_id": f"COV-{i:02d}",
+                "purpose": "Open form",
+                "source": "ABC-123",
+                "state": "Ready",
+                "expected_invariant": "Form shown",
+            }
+            for i in (1, 2)
+        ]
+    )
+    async with Client(build_server(RouterService(Settings(data_dir=tmp_path), drafting))) as client:
+        result = await client.call_tool(
+            "draft_test_cases",
+            {
+                "requirement": "ABC-123 form behavior",
+                "coverage_map": coverage,
+            },
+        )
+    assert result.structured_content["status"] == "ok"
+    assert len(drafting.prompts) == 1
+    assert "ABC-123" not in drafting.prompts[0]
+    assert "COV-01" in result.structured_content["draft"]
+    assert "COV-02" in result.structured_content["draft"]
 
 
 @pytest.mark.asyncio

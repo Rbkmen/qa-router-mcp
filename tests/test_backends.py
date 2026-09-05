@@ -246,6 +246,33 @@ async def test_http_status_error_is_not_retried():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body", [{"choices": []}, {"choices": [{"message": []}]}])
+async def test_malformed_choices_return_service_fallback(tmp_path, body):
+    from qa_router_mcp.contracts import DraftKind
+    from qa_router_mcp.service import RouterService
+
+    class Backend(LMStudioDraftBackend):
+        async def count_tokens(self, prompt):
+            return 100
+
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=body)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        settings = Settings(data_dir=tmp_path)
+        result = await RouterService(settings, Backend(settings, client)).draft(
+            DraftKind.REWRITE, "Synthetic text"
+        )
+    assert result.status == "fallback"
+    assert result.reason == "local_model_invalid_response"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_explicit_zero_output_limit_is_not_replaced_by_default():
     async def handler(request: httpx.Request) -> httpx.Response:
         body = __import__("json").loads(request.content)

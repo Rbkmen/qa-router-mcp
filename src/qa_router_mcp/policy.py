@@ -47,17 +47,22 @@ REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:src|tests?|packages?|apps?|lib)/[\w./-]+\b", re.IGNORECASE), "[PATH]"),
 )
 MAX_LOCAL_TEST_CASES = 12
+STRUCTURAL_COVERAGE_LINE = re.compile(
+    r"(?m)(^[ \t]*Coverage ID:[ \t]*COV-[A-Z0-9][A-Z0-9._-]{0,59}[ \t]*$)"
+)
 
 
-def sanitize_transient(text: str, limit: int) -> str:
+def sanitize_transient(text: str, limit: int, *, preserve_coverage_ids: bool = False) -> str:
     if len(text) > limit:
         raise PolicyError("input_too_large")
     if SECRET.search(text):
         raise PolicyError("secret_detected", "possible_secret")
-    clean = text
-    for pattern, replacement in REPLACEMENTS:
-        clean = pattern.sub(replacement, clean)
-    return clean.strip()
+    # Keep only typed structural ID lines; source text still receives every redaction.
+    parts = STRUCTURAL_COVERAGE_LINE.split(text) if preserve_coverage_ids else [text]
+    for index in range(0, len(parts), 2):
+        for pattern, replacement in REPLACEMENTS:
+            parts[index] = pattern.sub(replacement, parts[index])
+    return "".join(parts).strip()
 
 
 def assert_allowed_request(kind: DraftKind, text: str) -> None:

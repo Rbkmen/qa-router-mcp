@@ -185,7 +185,9 @@ class RouterService:
             input_limit = self.settings.input_limit(kind)
             if input_chars > input_limit:
                 raise PolicyError("input_too_large")
-            safe_content = sanitize_transient(content, input_limit)
+            safe_content = sanitize_transient(
+                content, input_limit, preserve_coverage_ids=kind == DraftKind.TEST_CASES
+            )
             safe_pattern = sanitize_transient(pattern, input_limit) if pattern else None
             prompt = build_prompt(kind, safe_content, safe_pattern)
             output_limit = self.settings.output_limit(kind, packet)

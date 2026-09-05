@@ -82,6 +82,8 @@ class LMStudioDraftBackend:
                 response.raise_for_status()
             body = response.json()
             message = body["choices"][0]["message"]
+            if not isinstance(message, dict):
+                raise TypeError("LM Studio message must be an object")
             content = message.get("content") or message.get("reasoning_content")
             if not isinstance(content, str):
                 raise TypeError("LM Studio message content must be text")
@@ -106,7 +108,7 @@ class LMStudioDraftBackend:
                 "local_model_transport_error",
                 GenerationStats(requests=1),
             ) from exc
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise BackendError(
                 "local_model_invalid_response",
                 GenerationStats(requests=1),

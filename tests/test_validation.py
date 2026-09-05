@@ -1,3 +1,5 @@
+import pytest
+
 from qa_router_mcp.contracts import DraftEnvelope, DraftKind
 from qa_router_mcp.validation import (
     repair_instruction,
@@ -13,6 +15,30 @@ def test_requested_case_count_supports_english_and_russian():
     assert requested_case_count("Draft three focused smoke test cases") == 3
     assert requested_case_count("Draft 12 focused test cases") == 12
     assert requested_case_count("Draft a focused case") == 1
+
+
+@pytest.mark.parametrize("field", ["title", "preconditions", "steps", "expected_result"])
+def test_empty_case_field_is_rejected(field):
+    labels = {
+        "title": "Title",
+        "preconditions": "Preconditions",
+        "steps": "Steps",
+        "expected_result": "Expected Result",
+    }
+    draft = "\n".join(
+        f"{label}: " + ("" if key == field else "Content") for key, label in labels.items()
+    )
+    assert validate_generated_draft(
+        DraftKind.TEST_CASES, "Draft one case", DraftEnvelope(draft=draft)
+    ) == [f"test_cases_empty_{field}"]
+
+
+def test_multiline_case_fields_are_valid():
+    draft = "Title: Case\nPreconditions:\nReady\nSteps:\n1. Act\nExpected Result:\nSuccess"
+    assert (
+        validate_generated_draft(DraftKind.TEST_CASES, "Draft one case", DraftEnvelope(draft=draft))
+        == []
+    )
 
 
 def test_short_explanation_over_120_words_is_rejected():

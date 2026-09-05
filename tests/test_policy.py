@@ -14,6 +14,27 @@ def test_transient_identifiers_are_replaced():
     assert sanitize_transient(raw, 1_000) == ("[ISSUE] at [URL] by [EMAIL] commit [COMMIT]")
 
 
+def test_coverage_preservation_is_scoped_to_structural_lines():
+    raw = (
+        "Coverage ID: COV-01\nCoverage ID: COV-DEADBEEF\n"
+        "Source: ABC-123 and COV-02\nCoverage ID: ABC-456\n"
+        "Coverage ID: COV-03 https://private.example.test"
+    )
+    assert sanitize_transient(raw, 1_000, preserve_coverage_ids=True) == (
+        "Coverage ID: COV-01\nCoverage ID: COV-DEADBEEF\n"
+        "Source: [ISSUE] and [ISSUE]\nCoverage ID: [ISSUE]\n"
+        "Coverage ID: [ISSUE] [URL]"
+    )
+    assert sanitize_transient("Coverage ID: COV-01", 1_000) == "Coverage ID: [ISSUE]"
+
+
+def test_coverage_preservation_does_not_bypass_secret_refusal():
+    with pytest.raises(PolicyError, match="secret_detected"):
+        sanitize_transient(
+            "Coverage ID: COV-01\npassword=synthetic", 1_000, preserve_coverage_ids=True
+        )
+
+
 def test_branch_and_repository_paths_are_replaced():
     raw = "Use feature/login-rework and src/project/private.py"
 
