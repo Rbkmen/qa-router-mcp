@@ -15,13 +15,13 @@ Use only `qwen/qwen3.5-9b` after Codex selects the smallest relevant sanitized p
 - `translate_text` or `rewrite_text`: at least 2,000 characters.
 - `draft_automation_skeleton`: an explicit project pattern and a multi-step scenario.
 
-Keep smaller tasks in Terra. Use `explain_short` only when the user explicitly requests local Qwen. An explicit local-model request may override the size threshold when policy permits.
+Keep smaller tasks in the primary agent. Use `explain_short` only when the user explicitly requests local Qwen. An explicit local-model request may override the size threshold when policy permits.
 
 ## Review and canary
 
 Treat every result as a draft. Verify all `assumptions` and `unverified` items.
 
-For test cases, Terra must first decide final coverage and create one concise object per case with a unique stable `coverage_id` in `COV-*` format, purpose, confirmed source, state/branch, and expected invariant. Call `draft_test_cases(requirement=<sanitized bounded requirement>, coverage_map=[{coverage_id, purpose, source, state, expected_invariant}], examples=<optional project style>)`. Qwen only expands that fixed map into case prose and must repeat every ID exactly once. Compare the result ID-by-ID before accepting it.
+For test cases, the primary agent must first decide final coverage and create one concise object per case with a unique stable `coverage_id` in `COV-*` format, purpose, confirmed source, state/branch, and expected invariant. Call `draft_test_cases(requirement=<sanitized bounded requirement>, coverage_map=[{coverage_id, purpose, source, state, expected_invariant}], examples=<optional project style>)`. Qwen only expands that fixed map into case prose and must repeat every ID exactly once. Compare the result ID-by-ID before accepting it.
 
 When `canary_feedback_required` is true, call `record_canary_feedback` exactly once after review:
 
@@ -31,13 +31,13 @@ When `canary_feedback_required` is true, call `record_canary_feedback` exactly o
 
 Call `record_canary_feedback(draft_id=<returned ID>, verdict=<verdict>, reason=<reason>)`; these are the only arguments. Never invent or reuse an ID, and do not submit feedback when `canary_feedback_required` is false. Stored feedback contains only the random ID, derived route kind, verdict, and reason—never task or draft text.
 
-Use `quality_status` as the per-tool circuit breaker: `active` routes normally, `canary` collects evidence, and `paused` returns the task to Terra. From 10 reviewed drafts, at least 80% acceptable results activate a tool; at least 20% serious factual or coverage corrections pause it. The rolling gate uses the latest 20 reviews.
+Use `quality_status` as the per-tool circuit breaker: `active` routes normally, `canary` collects evidence, and `paused` returns the task to the primary agent. From 10 reviewed drafts, at least 80% acceptable results activate a tool; at least 20% serious factual or coverage corrections pause it. The rolling gate uses the latest 20 reviews.
 
-When `shadow_evaluation_required` is true, independently draft a Terra baseline from the same sanitized Evidence Packet before using the Qwen result, compare them, and submit the requested feedback. QA Router selects approximately 10% of successful drafts and never makes the extra cloud call itself.
+When `shadow_evaluation_required` is true, independently draft a primary-agent baseline from the same sanitized Evidence Packet before using the Qwen result, compare them, and submit the requested feedback. QA Router selects approximately 10% of successful drafts and never makes the extra cloud call itself.
 
 ## Keep in Codex
 
-Codex owns Jira/MR/diff analysis, current facts, the Evidence Packet, final coverage, severity, release readiness, code changes, QA outcome metrics, and every external-system action. Continue in Terra when local routing refuses or falls back.
+Codex owns Jira/MR/diff analysis, current facts, the Evidence Packet, final coverage, severity, release readiness, code changes, QA outcome metrics, and every external-system action. Continue in the primary agent when local routing refuses or falls back.
 
 After a QA task completes or stops with a final `partial` or `blocked` result, call `record_qa_task_outcome` exactly once. Record exact content-free counters only. Count source retrieval calls to Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence in `source_mcp_calls`; exclude CodeGraph, QA Router, and the metrics call itself. When available, include aggregate `codegraph_response_tokens`, `source_mcp_response_tokens`, and estimated `avoided_source_read_tokens`; omit a token counter when it cannot be measured.
 
