@@ -5,7 +5,7 @@ import pytest
 from qa_router_mcp.backends import BackendError
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope, DraftKind
-from qa_router_mcp.events import JsonEventSink
+from qa_router_mcp.events import CANARY_TARGET, CANARY_TOOL_TARGETS, JsonEventSink
 from qa_router_mcp.service import RouterService
 
 
@@ -140,7 +140,7 @@ async def test_tokenizer_failure_falls_back_before_generation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path, monkeypatch):
+async def test_new_active_profile_requests_feedback_until_minimum_reviews(tmp_path, monkeypatch):
     drafting = DraftFake(DraftEnvelope(draft="Translated", unverified=[]))
     service = RouterService(Settings(data_dir=tmp_path), drafting)
     monkeypatch.setattr("qa_router_mcp.service.is_shadow_sample", lambda _: False)
@@ -149,8 +149,8 @@ async def test_default_event_sink_writes_to_settings_metrics_path(tmp_path, monk
 
     assert result.status == "ok"
     assert result.quality_status == "active"
-    assert result.canary_feedback_required is False
-    assert result.draft_id is None
+    assert result.canary_feedback_required is True
+    assert result.draft_id is not None
     event = (tmp_path / "metrics.jsonl").read_text()
     assert '"source":"interactive"' in event
     assert '"quality_status":"active"' in event
@@ -205,7 +205,7 @@ async def test_paused_quality_gate_falls_back_before_tokenization(tmp_path):
                     "timestamp": "2026-09-03T00:00:00+00:00",
                     "tool": "test_cases",
                     "model": "qwen/qwen3.5-9b",
-                    "profile_version": "router-v10",
+                    "profile_version": Settings().profile_version,
                     "source": "interactive",
                     "outcome": "ok",
                     "draft_id": draft_id,
@@ -216,7 +216,7 @@ async def test_paused_quality_gate_falls_back_before_tokenization(tmp_path):
                     "timestamp": "2026-09-03T00:00:01+00:00",
                     "tool": "test_cases",
                     "draft_id": draft_id,
-                    "profile_version": "router-v10",
+                    "profile_version": Settings().profile_version,
                     "source": "interactive",
                     "verdict": "edited" if index < 2 else "accepted",
                     "reason": "coverage" if index < 2 else "none",
@@ -322,6 +322,29 @@ async def test_malformed_test_cases_are_repaired_once(tmp_path):
     assert result.status == "ok"
     assert len(drafting.prompts) == 2
     assert "REPAIR_REQUIRED" in drafting.prompts[1]
+
+
+@pytest.mark.asyncio
+async def test_semantic_repair_rechecks_context_budget(tmp_path):
+    malformed = DraftEnvelope(draft="Title: Only one case", unverified=["Review"])
+
+    class GrowingPromptBackend(DraftFake):
+        async def count_tokens(self, prompt):
+            self.token_prompts.append(prompt)
+            return 100 if len(self.token_prompts) == 1 else 15_000
+
+    drafting = GrowingPromptBackend(malformed, malformed)
+    path = tmp_path / "metrics.jsonl"
+    service = RouterService(Settings(data_dir=tmp_path), drafting, JsonEventSink(path))
+
+    result = await service.draft(DraftKind.TEST_CASES, "Draft 3 test cases")
+
+    assert result.status == "refused"
+    assert result.reason == "token_budget_exceeded"
+    assert len(drafting.token_prompts) == 2
+    assert len(drafting.prompts) == 1
+    event = json.loads(path.read_text())
+    assert event["validation_repair"] is True
 
 
 @pytest.mark.asyncio
@@ -474,7 +497,7 @@ def test_service_records_content_free_qa_task_outcome(tmp_path):
         "codegraph_calls": 2,
         "source_mcp_calls": 7,
         "qwen_used": True,
-        "sol_used": False,
+        "deep_analysis_used": False,
         "findings_identified": 3,
         "findings_confirmed": 2,
         "findings_rejected": 1,
@@ -611,7 +634,7 @@ def test_event_sink_records_content_free_canary_feedback(tmp_path):
     event = events[-1]
     assert receipt.status == "recorded"
     assert receipt.feedback_count == 1
-    assert receipt.target == 50
+    assert receipt.target == CANARY_TARGET
     assert event == {
         "schema_version": 4,
         "event_type": "canary_feedback",
@@ -630,9 +653,10 @@ def test_event_sink_records_content_free_canary_feedback(tmp_path):
 def test_canary_uses_per_profile_tool_quotas_across_sink_instances(tmp_path):
     path = tmp_path / "metrics.jsonl"
     sinks = [JsonEventSink(path) for _ in range(3)]
-    draft_ids = [str(index) * 32 for index in range(1, 4)]
+    draft_ids = [f"{index:032x}" for index in range(1, CANARY_TOOL_TARGETS["translation"] + 2)]
     issued_ids = []
-    for sink, draft_id in zip(sinks, draft_ids, strict=True):
+    for index, draft_id in enumerate(draft_ids):
+        sink = sinks[index % len(sinks)]
         issued_ids.append(
             sink.emit(
                 "translation",
@@ -645,7 +669,7 @@ def test_canary_uses_per_profile_tool_quotas_across_sink_instances(tmp_path):
             )
         )
 
-    assert issued_ids == [draft_ids[0], draft_ids[1], None]
+    assert issued_ids == draft_ids
     first = sinks[0].record_feedback(draft_ids[0], "accepted", "none")
     second = sinks[1].record_feedback(draft_ids[1], "accepted", "none")
 
@@ -711,7 +735,7 @@ def test_canary_completes_only_after_every_tool_quota(tmp_path):
             receipt = sink.record_feedback(draft_id, "accepted", "none")
 
     assert receipt.status == "recorded"
-    assert receipt.feedback_count == 50
+    assert receipt.feedback_count == CANARY_TARGET
     for tool in CANARY_TOOL_TARGETS:
         assert (
             sink.emit(
@@ -761,7 +785,7 @@ def test_shadow_feedback_is_recorded_after_canary_quota(tmp_path):
 
     assert issued == shadow_id
     assert receipt.status == "recorded"
-    assert receipt.feedback_count == 3
+    assert receipt.feedback_count == CANARY_TOOL_TARGETS["translation"] + 1
 
 
 def test_service_records_feedback_by_draft_id(tmp_path):

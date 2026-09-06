@@ -6,9 +6,9 @@ A privacy-aware local MCP server that delegates bounded, sanitized QA drafting t
 
 ## Reference architecture
 
-- **Primary orchestrator:** an MCP-capable host agent. The diagram shows the verified Codex setup with GPT-5.6 Terra at medium reasoning.
+- **Primary orchestrator:** an MCP-capable host agent selected by the client configuration.
 - **Local routine drafts:** Qwen3.5-9B through loopback-only LM Studio/MLX.
-- **Complex escalation:** client-owned and optional. The Codex reference setup uses one read-only `qa_deep` agent with GPT-5.6 Sol at high reasoning.
+- **Complex escalation:** client-owned and optional. The router records the selected deep model and reasoning level without choosing or invoking that model.
 - **Source systems:** Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence remain under host-agent control through their integrations.
 - **Code navigation:** CodeGraph can be used by the host agent when an applicable project index exists.
 
@@ -52,7 +52,7 @@ Smaller tasks stay in the host agent. `explain_short` is local only when explici
 - Secrets and indicators of PII or payment data are rejected.
 - Sensitive refusals expose only a coarse category and never echo the matched value.
 - Issue keys, URLs, email addresses, commit hashes, branches, and local paths are replaced before a local request.
-- The full sanitized prompt is tokenized with the selected local model before generation.
+- The full sanitized prompt is tokenized with the selected local model before every initial or repair generation.
 - Prompt tokens, adaptive output budget, and a 512-token reserve must fit the verified 16K context.
 - Logs contain metadata and counters only, never prompt or response text.
 - Credentials, cookies, tokens, personal or payment data, full repositories, and unrestricted corporate documents must never be sent to the local route.
@@ -160,13 +160,15 @@ Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Pro
 
 The router records model loading, tokenization, generation, validation, repair, and total latency separately. For LM Studio, `cold_start_likely` is based on the loaded-model list immediately before acquisition; `model_load_ms` measures that cold acquisition. Alternate test backends fall back to a process-local idle-time heuristic.
 
-Each tool has an automatic `active`, `canary`, or `paused` quality state based on its latest reviewed drafts. A deterministic 10% shadow sample asks the host agent to create an independent baseline; QA Router never triggers a hidden cloud call. Qwen token usage is recorded with generation events; host instructions also record one content-free QA task outcome so Qwen use, edits, source calls, CodeGraph calls, findings, and repeated reads can be evaluated after enough real work. When measurable, QA task outcomes include aggregate CodeGraph and source-response token counters; CodeGraph savings remain an explicitly labelled estimate, not a counterfactual fact.
+Each tool has an automatic `active`, `canary`, or `paused` quality state based on its latest reviewed drafts. Every tool in a new profile requests feedback for its first 10 reviewed drafts, including routes that start active. After that, a deterministic 10% shadow sample asks the host agent to create an independent baseline; QA Router never triggers a hidden cloud call. Qwen token usage is recorded with generation events; host instructions also record one content-free QA task outcome so Qwen use, edits, source calls, CodeGraph calls, findings, and repeated reads can be evaluated after enough real work. Deep-analysis outcomes use model-neutral `deep_*` fields so Sol, Astra, or another client-owned model can be compared. When measurable, QA task outcomes include aggregate CodeGraph and source-response token counters; CodeGraph savings remain an explicitly labelled estimate, not a counterfactual fact.
 
 Generate a seven-day report:
 
 ```bash
 uv run qa-router-report
 ```
+
+Choose another positive window with `--days`, for example `uv run qa-router-report --days 30`.
 
 Run the opt-in 28-case live regression benchmark:
 
@@ -202,7 +204,7 @@ Restart the host AI client. Remove the marker file to enable local delegation ag
 
 The current regression profile uses Qwen3.5-9B 4-bit, a 16K logical context, one serialized generation, thinking disabled, and a 300-second TTL. It was validated on Apple Silicon with 24 GB unified memory, LM Studio 0.4.23, and MLX runtime 1.11.0.
 
-The live regression suite validates output structure, policy enforcement, source-bounded behavior, fallback contracts, and the absence of persistent application memory. It does not replace expert QA review.
+The live regression suite validates output structure, required and forbidden semantic anchors, exact coverage IDs, policy enforcement, source-bounded behavior, fallback contracts, and the absence of persistent application memory. It does not replace expert QA review.
 
 ## Contributing
 

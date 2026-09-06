@@ -1,3 +1,4 @@
+import argparse
 import json
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -32,6 +33,8 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     qa_task_outcomes: Counter[str] = Counter()
     qa_task_types: Counter[str] = Counter()
     qa_task_totals = Counter()
+    deep_models: Counter[str] = Counter()
+    deep_reasoning: Counter[str] = Counter()
 
     events: list[dict[str, object]] = []
     for line in lines:
@@ -64,7 +67,14 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             qa_task_types[str(event.get("task_type", "unknown"))] += 1
             qa_task_totals["events"] += 1
             qa_task_totals["qwen_tasks"] += event.get("qwen_used") is True
-            qa_task_totals["sol_tasks"] += event.get("sol_used") is True
+            deep_used = event.get("deep_analysis_used", event.get("sol_used")) is True
+            qa_task_totals["deep_tasks"] += deep_used
+            qa_task_totals["sol_tasks"] += (
+                event.get("sol_used") is True or event.get("deep_model") == "gpt-5.6-sol"
+            )
+            if deep_used:
+                deep_models[str(event.get("deep_model", "unknown"))] += 1
+                deep_reasoning[str(event.get("deep_reasoning", "unknown"))] += 1
             qa_task_totals["codegraph_tasks"] += event.get("codegraph_calls", 0) > 0
             qa_task_totals["complete_token_measurement_tasks"] += QA_TASK_TOKEN_COUNTERS <= event.keys()
             for field in (
@@ -78,6 +88,9 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
                 "codegraph_response_tokens",
                 "source_mcp_response_tokens",
                 "avoided_source_read_tokens",
+                "deep_duration_ms",
+                "deep_input_tokens",
+                "deep_output_tokens",
             ):
                 value = event.get(field, 0)
                 if type(value) is int and value >= 0:
@@ -170,6 +183,12 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             "source_mcp_calls": qa_task_totals["source_mcp_calls"],
             "qwen_tasks": qa_task_totals["qwen_tasks"],
             "sol_tasks": qa_task_totals["sol_tasks"],
+            "deep_tasks": qa_task_totals["deep_tasks"],
+            "deep_by_model": dict(sorted(deep_models.items())),
+            "deep_by_reasoning": dict(sorted(deep_reasoning.items())),
+            "deep_duration_ms": qa_task_totals["deep_duration_ms"],
+            "deep_input_tokens": qa_task_totals["deep_input_tokens"],
+            "deep_output_tokens": qa_task_totals["deep_output_tokens"],
             "findings_identified": qa_task_totals["findings_identified"],
             "findings_confirmed": qa_task_totals["findings_confirmed"],
             "findings_rejected": qa_task_totals["findings_rejected"],
@@ -264,7 +283,12 @@ def _savings_percent(avoided_tokens: int, source_tokens: int) -> float | None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Summarize QA Router metrics")
+    parser.add_argument("--days", type=int, default=7, help="report window in days")
+    args = parser.parse_args()
+    if args.days < 1:
+        parser.error("--days must be positive")
     data_dir = Path(environ.get("QA_ROUTER_DATA_DIR", str(Path.home() / ".qa-router")))
     path = data_dir / "metrics.jsonl"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    print(json.dumps(summarize_events(lines), ensure_ascii=False, indent=2))
+    print(json.dumps(summarize_events(lines, days=args.days), ensure_ascii=False, indent=2))

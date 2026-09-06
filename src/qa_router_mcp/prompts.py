@@ -1,3 +1,5 @@
+import re
+
 from qa_router_mcp.contracts import DraftKind
 
 INSTRUCTIONS = {
@@ -7,6 +9,10 @@ INSTRUCTIONS = {
         "For every case, "
         "repeat its supplied Coverage ID exactly once, then these four headings: "
         "Title:, Preconditions:, Steps:, Expected Result:. "
+        "Coverage IDs are mandatory machine identifiers: copy every COV-* value verbatim, "
+        "never translate, shorten, omit, or place two IDs in one case. "
+        "The draft field must be one plain-text string using those literal headings. Do not "
+        "put a JSON array, nested JSON objects, or JSON property names inside draft. "
         "If the input does not explicitly request a count, draft exactly one case. "
         "Do not add a separate Test Case heading or combine cases. Keep every field concise and "
         "do not invent authentication, account, payment, or notification behavior. "
@@ -20,8 +26,9 @@ INSTRUCTIONS = {
         "Draft a non-writing automation skeleton using only the supplied pattern."
     ),
     DraftKind.TRANSLATION: (
-        "Translate only the supplied text to the requested language. Preserve explicitly "
-        "listed terms and do not add facts."
+        "Translate only the supplied TEXT to TARGET_LANGUAGE. Every token listed after "
+        "PRESERVE_TERMS must appear verbatim in the translated draft. Do not translate, "
+        "inflect, replace, or omit those terms. Do not add facts."
     ),
     DraftKind.REWRITE: (
         "Rewrite only the supplied text according to the instruction without changing its facts."
@@ -39,6 +46,18 @@ INSTRUCTIONS = {
 
 def build_prompt(kind: DraftKind, content: str, pattern: str | None = None) -> str:
     pattern_section = f"\nSUPPLIED_PATTERN:\n{pattern}" if pattern else ""
+    skeleton_section = ""
+    if kind == DraftKind.TEST_CASES:
+        coverage_ids = re.findall(r"(?m)^Coverage ID:\s*(COV-[A-Z0-9._-]+)\s*$", content)
+        if coverage_ids:
+            blocks = [
+                (
+                    f"Coverage ID: {coverage_id}\nTitle: <fill>\nPreconditions: <fill>\n"
+                    "Steps: <fill>\nExpected Result: <fill>"
+                )
+                for coverage_id in coverage_ids
+            ]
+            skeleton_section = "\nMANDATORY_DRAFT_SKELETON:\n" + "\n\n".join(blocks)
     return (
         "You are a local routine drafting model. Return only JSON matching the supplied schema. "
         "Return one JSON object and stop immediately after its closing brace. Do not repeat the "
@@ -50,5 +69,5 @@ def build_prompt(kind: DraftKind, content: str, pattern: str | None = None) -> s
         "For test cases, follow the exact repeated heading format from TASK.\n"
         "- unverified: a JSON array of claims or assumptions that still need verification.\n"
         "- assumptions: a JSON array; use an empty array when none are needed.\n"
-        f"TASK:\n{INSTRUCTIONS[kind]}\nINPUT:\n{content}{pattern_section}"
+        f"TASK:\n{INSTRUCTIONS[kind]}\nINPUT:\n{content}{pattern_section}{skeleton_section}"
     )

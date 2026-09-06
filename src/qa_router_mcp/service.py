@@ -18,8 +18,12 @@ from qa_router_mcp.contracts import (
 from qa_router_mcp.events import EventSink, JsonEventSink, valid_qa_task_metrics
 from qa_router_mcp.policy import PolicyError, assert_allowed_request, sanitize_transient
 from qa_router_mcp.prompts import build_prompt
-from qa_router_mcp.quality import QualityGate, is_shadow_sample
-from qa_router_mcp.validation import repair_instruction, validate_generated_draft
+from qa_router_mcp.quality import MIN_REVIEWS, QualityGate, is_shadow_sample
+from qa_router_mcp.validation import (
+    normalize_test_case_draft,
+    repair_instruction,
+    validate_generated_draft,
+)
 
 
 class RouterService:
@@ -60,12 +64,18 @@ class RouterService:
         codegraph_calls: int,
         source_mcp_calls: int,
         qwen_used: bool,
-        sol_used: bool,
         findings_identified: int,
         findings_confirmed: int,
         findings_rejected: int,
         qwen_edits: int,
         repeated_source_reads: int,
+        deep_analysis_used: bool = False,
+        deep_model: str | None = None,
+        deep_reasoning: str | None = None,
+        deep_duration_ms: int | None = None,
+        deep_input_tokens: int | None = None,
+        deep_output_tokens: int | None = None,
+        sol_used: bool | None = None,
         codegraph_response_tokens: int | None = None,
         source_mcp_response_tokens: int | None = None,
         avoided_source_read_tokens: int | None = None,
@@ -76,13 +86,26 @@ class RouterService:
             "codegraph_calls": codegraph_calls,
             "source_mcp_calls": source_mcp_calls,
             "qwen_used": qwen_used,
-            "sol_used": sol_used,
+            "deep_analysis_used": deep_analysis_used or sol_used is True,
             "findings_identified": findings_identified,
             "findings_confirmed": findings_confirmed,
             "findings_rejected": findings_rejected,
             "qwen_edits": qwen_edits,
             "repeated_source_reads": repeated_source_reads,
         }
+        if deep_model is not None:
+            event["deep_model"] = deep_model
+        elif sol_used is True:
+            event["deep_model"] = "gpt-5.6-sol"
+        if deep_reasoning is not None:
+            event["deep_reasoning"] = deep_reasoning
+        for field, value in (
+            ("deep_duration_ms", deep_duration_ms),
+            ("deep_input_tokens", deep_input_tokens),
+            ("deep_output_tokens", deep_output_tokens),
+        ):
+            if value is not None:
+                event[field] = value
         for field, value in (
             ("codegraph_response_tokens", codegraph_response_tokens),
             ("source_mcp_response_tokens", source_mcp_response_tokens),
@@ -116,7 +139,12 @@ class RouterService:
         sample_id = uuid4().hex
         interactive_ok = result.status == "ok" and self.settings.metrics_source == "interactive"
         shadow_required = interactive_ok and is_shadow_sample(sample_id)
-        candidate_id = sample_id if interactive_ok and (gate.status == "canary" or shadow_required) else None
+        needs_profile_feedback = gate.reviews < MIN_REVIEWS
+        candidate_id = (
+            sample_id
+            if interactive_ok and (needs_profile_feedback or gate.status == "canary" or shadow_required)
+            else None
+        )
         result.quality_status = gate.status
         result.shadow_evaluation_required = shadow_required
         result.sensitive_category = sensitive_category
@@ -167,6 +195,7 @@ class RouterService:
         repair_ms = 0.0
         validation_repair_attempted = False
         estimated_prompt_tokens = 0
+        recorded_stats = GenerationStats()
         packet = content if pattern is None else f"{content}\n{pattern}"
         input_chars = len(packet)
         quality_gate = self.events.quality_gate(kind.value, self.settings.profile_version)
@@ -211,6 +240,9 @@ class RouterService:
                 prompt,
                 max_output_tokens=output_limit,
             )
+            if kind == DraftKind.TEST_CASES:
+                result.draft = normalize_test_case_draft(result.draft)
+            recorded_stats = result.generation_stats
             generation_ms = (monotonic() - phase_started) * 1_000
             self._last_generation_finished = monotonic()
             phase_started = monotonic()
@@ -237,16 +269,35 @@ class RouterService:
                 validation_repair_attempted = True
                 try:
                     phase_started = monotonic()
+                    repair_prompt = f"{prompt}\n{repair_instruction(issues)}"
+                    repair_token_count = await self.drafting.count_tokens(repair_prompt)
+                    if isinstance(repair_token_count, TokenCount):
+                        repair_tokens = repair_token_count.tokens
+                        tokenization_ms += repair_token_count.tokenization_ms
+                        model_load_ms += repair_token_count.model_load_ms
+                    else:
+                        repair_tokens = repair_token_count
+                    if (
+                        repair_tokens
+                        + output_limit
+                        + self.settings.context_reserve_tokens
+                        > self.settings.context
+                    ):
+                        raise PolicyError("token_budget_exceeded")
+                    estimated_prompt_tokens = repair_tokens
                     repaired = await self.drafting.generate(
-                        f"{prompt}\n{repair_instruction(issues)}",
+                        repair_prompt,
                         max_output_tokens=output_limit,
                         allow_schema_repair=False,
                     )
+                    if kind == DraftKind.TEST_CASES:
+                        repaired.draft = normalize_test_case_draft(repaired.draft)
                     repair_ms = (monotonic() - phase_started) * 1_000
                     self._last_generation_finished = monotonic()
                 except BackendError as exc:
                     raise BackendError(exc.code, initial_stats.merged(exc.stats)) from exc
                 combined_stats = initial_stats.merged(repaired.generation_stats)
+                recorded_stats = combined_stats
                 repaired.set_generation_stats(combined_stats)
                 phase_started = monotonic()
                 remaining = validate_generated_draft(kind, packet, repaired)
@@ -293,6 +344,8 @@ class RouterService:
                 result,
                 started,
                 input_chars,
+                recorded_stats,
+                validation_repair_attempted,
                 estimated_prompt_tokens=estimated_prompt_tokens,
                 quality_gate=quality_gate,
                 tokenization_ms=tokenization_ms,
@@ -308,6 +361,8 @@ class RouterService:
                 result,
                 started,
                 input_chars,
+                recorded_stats,
+                validation_repair_attempted,
                 estimated_prompt_tokens=estimated_prompt_tokens,
                 quality_gate=quality_gate,
                 sensitive_category=exc.category,

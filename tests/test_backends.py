@@ -1,9 +1,14 @@
+import asyncio
+import time
+from threading import Lock
+
 import httpx
 import pytest
 
 import qa_router_mcp.backends as backends_module
 from qa_router_mcp.backends import LMStudioDraftBackend
 from qa_router_mcp.config import Settings
+from qa_router_mcp.contracts import TokenCount
 
 
 @pytest.mark.asyncio
@@ -107,6 +112,45 @@ async def test_lmstudio_uses_direct_structured_request():
 
 
 @pytest.mark.asyncio
+async def test_tokenization_and_generation_share_one_concurrency_gate(monkeypatch):
+    state = {"active": 0, "maximum": 0}
+    lock = Lock()
+
+    def enter():
+        with lock:
+            state["active"] += 1
+            state["maximum"] = max(state["maximum"], state["active"])
+
+    def leave():
+        with lock:
+            state["active"] -= 1
+
+    def count_tokens(_):
+        enter()
+        time.sleep(0.03)
+        leave()
+        return TokenCount(tokens=10, model_load_ms=0, tokenization_ms=0, cold_start=False)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        enter()
+        await asyncio.sleep(0.03)
+        leave()
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"draft":"A","unverified":[]}'}}]},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    backend = LMStudioDraftBackend(Settings(), client)
+    monkeypatch.setattr(backend, "_count_tokens_sync", count_tokens)
+
+    await asyncio.gather(backend.count_tokens("prompt"), backend.generate("prompt"))
+
+    assert state["maximum"] == 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_lmstudio_accepts_structured_json_from_reasoning_channel():
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -135,7 +179,7 @@ async def test_lmstudio_accepts_structured_json_from_reasoning_channel():
 
 
 @pytest.mark.asyncio
-async def test_invalid_schema_is_repaired_once():
+async def test_invalid_schema_is_repaired_once(monkeypatch):
     calls = 0
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -149,11 +193,38 @@ async def test_invalid_schema_is_repaired_once():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
-    result = await LMStudioDraftBackend(Settings(), client).generate("prompt")
+    backend = LMStudioDraftBackend(Settings(), client)
+    monkeypatch.setattr(
+        backend,
+        "_count_messages_sync",
+        lambda _: TokenCount(tokens=100, model_load_ms=0, tokenization_ms=0, cold_start=False),
+    )
+    result = await backend.generate("prompt")
 
     assert result.draft == "A"
     assert calls == 2
     assert result.generation_stats.requests == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_schema_repair_rechecks_context_budget(monkeypatch):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "not-json"}}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    backend = LMStudioDraftBackend(Settings(), client)
+    monkeypatch.setattr(
+        backend,
+        "_count_messages_sync",
+        lambda _: TokenCount(tokens=16_000, model_load_ms=0, tokenization_ms=0, cold_start=False),
+    )
+
+    from qa_router_mcp.backends import BackendError
+
+    with pytest.raises(BackendError, match="local_model_token_budget_exceeded"):
+        await backend.generate("prompt")
+
     await client.aclose()
 
 
@@ -291,3 +362,21 @@ async def test_explicit_zero_output_limit_is_not_replaced_by_default():
 
     assert result.status == "ok"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_schema_repair_tokenizer_failure_preserves_request_stats(monkeypatch):
+    from qa_router_mcp.backends import BackendError
+
+    def fail(_):
+        raise RuntimeError("tokenizer unavailable")
+
+    async def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "not-json"}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        backend = LMStudioDraftBackend(Settings(), client)
+        monkeypatch.setattr(backend, "_count_messages_sync", fail)
+        with pytest.raises(BackendError, match="local_tokenizer_error") as error:
+            await backend.generate("prompt")
+        assert error.value.stats.requests == 1

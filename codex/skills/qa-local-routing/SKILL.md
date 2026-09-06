@@ -23,6 +23,8 @@ Treat every result as a draft. Verify all `assumptions` and `unverified` items.
 
 For test cases, the primary agent must first decide final coverage and create one concise object per case with a unique stable `coverage_id` in `COV-*` format, purpose, confirmed source, state/branch, and expected invariant. Call `draft_test_cases(requirement=<sanitized bounded requirement>, coverage_map=[{coverage_id, purpose, source, state, expected_invariant}], examples=<optional project style>)`. Qwen only expands that fixed map into case prose and must repeat every ID exactly once. Compare the result ID-by-ID before accepting it.
 
+This applies to active routes too: every new tool/profile requests feedback until its initial review sample is collected.
+
 When `canary_feedback_required` is true, call `record_canary_feedback` exactly once after review:
 
 - unchanged draft: `accepted` + `none`;
@@ -42,6 +44,7 @@ Codex owns Jira/MR/diff analysis, current facts, the Evidence Packet, final cove
 After a QA task completes or stops with a final `partial` or `blocked` result, call `record_qa_task_outcome` exactly once. Record exact content-free counters only. Count source retrieval calls to Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence in `source_mcp_calls`; exclude CodeGraph, QA Router, and the metrics call itself. When available, include aggregate `codegraph_response_tokens`, `source_mcp_response_tokens`, and estimated `avoided_source_read_tokens`; omit a token counter when it cannot be measured.
 
 Never include credentials, cookies, tokens, personal or payment data, complete repositories, or unrestricted corporate documents.
+For client-owned deep analysis, record `deep_analysis_used`, the configured `deep_model` and `deep_reasoning`, and measured `deep_duration_ms`, `deep_input_tokens`, and `deep_output_tokens` when available. Omit unavailable measurements; do not infer a model from the agent name. Older clients may still send `sol_used`.
 If a local route refuses with `sensitive_data_detected`, reduce and sanitize the packet in Codex; do not weaken or bypass the check.
 
 ## Persistence

@@ -1,7 +1,8 @@
 import json
 from datetime import UTC, datetime
 
-from qa_router_mcp.report import summarize_events
+from qa_router_mcp.events import CANARY_TARGET, CANARY_TOOL_TARGETS
+from qa_router_mcp.report import main, summarize_events
 
 
 def test_weekly_report_aggregates_metadata_only():
@@ -202,15 +203,8 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
     assert report["events"] == 2
     assert report["outcomes"] == {"ok": 2}
     assert report["canary_feedback"] == {
-        "target_per_profile": 50,
-        "targets_by_tool": {
-            "automation_skeleton": 10,
-            "log_summary": 10,
-            "rewrite": 3,
-            "test_cases": 15,
-            "text_summary": 10,
-            "translation": 2,
-        },
+        "target_per_profile": CANARY_TARGET,
+        "targets_by_tool": dict(sorted(CANARY_TOOL_TARGETS.items())),
         "by_profile": {
             "router-v7": {
                 "reviews": 2,
@@ -219,6 +213,7 @@ def test_weekly_report_separates_canary_feedback_from_generation_events():
                     "automation_skeleton": 0,
                     "log_summary": 0,
                     "rewrite": 0,
+                    "short_explanation": 0,
                     "test_cases": 1,
                     "text_summary": 0,
                     "translation": 1,
@@ -363,6 +358,12 @@ def test_weekly_report_aggregates_qa_task_outcomes_separately():
         "source_mcp_calls": 10,
         "qwen_tasks": 1,
         "sol_tasks": 1,
+        "deep_tasks": 1,
+        "deep_by_model": {"unknown": 1},
+        "deep_by_reasoning": {"unknown": 1},
+        "deep_duration_ms": 0,
+        "deep_input_tokens": 0,
+        "deep_output_tokens": 0,
         "findings_identified": 4,
         "findings_confirmed": 3,
         "findings_rejected": 1,
@@ -411,3 +412,45 @@ def test_weekly_report_ignores_naive_timestamps():
     )
 
     assert report["events"] == 0
+
+
+def test_report_cli_honors_days_argument(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("QA_ROUTER_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["qa-router-report", "--days", "30"])
+
+    main()
+
+    assert json.loads(capsys.readouterr().out)["period_days"] == 30
+
+
+def test_report_aggregates_model_neutral_deep_metrics():
+    event = {
+        "schema_version": 7,
+        "event_type": "qa_task_outcome",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "task_type": "ordinary_review",
+        "outcome": "completed",
+        "codegraph_calls": 0,
+        "source_mcp_calls": 0,
+        "qwen_used": False,
+        "deep_analysis_used": True,
+        "deep_model": "gpt-6-astra",
+        "deep_reasoning": "medium",
+        "deep_duration_ms": 1200,
+        "deep_input_tokens": 300,
+        "deep_output_tokens": 100,
+        "findings_identified": 1,
+        "findings_confirmed": 1,
+        "findings_rejected": 0,
+        "qwen_edits": 0,
+        "repeated_source_reads": 0,
+    }
+
+    deep = summarize_events([json.dumps(event)])["qa_tasks"]
+
+    assert deep["deep_tasks"] == 1
+    assert deep["deep_by_model"] == {"gpt-6-astra": 1}
+    assert deep["deep_by_reasoning"] == {"medium": 1}
+    assert deep["deep_duration_ms"] == 1200
+    assert deep["deep_input_tokens"] == 300
+    assert deep["deep_output_tokens"] == 100

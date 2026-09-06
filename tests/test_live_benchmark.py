@@ -36,4 +36,10 @@ async def test_live_synthetic_benchmark_case(case, tmp_path):
         await backend.client.aclose()
 
     assert result.status == "ok", result.reason
+    normalized = result.draft.casefold()
+    semantic = case["semantic"]
+    for anchor in semantic["must_include"]:
+        assert anchor.casefold() in normalized, (anchor, result.draft)
+    for forbidden in semantic["must_exclude"]:
+        assert forbidden.casefold() not in normalized, (forbidden, result.draft)
     assert '"source":"benchmark"' in settings.metrics_path.read_text()

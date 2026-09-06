@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from qa_router_mcp.contracts import DraftEnvelope, GenerationStats
+from qa_router_mcp.contracts import CoverageItem, DraftEnvelope, GenerationStats
 
 
 def test_successful_qa_shaped_draft_keeps_unverified_items():
@@ -40,3 +40,18 @@ def test_generation_stats_are_runtime_only():
     assert result.generation_stats.output_tokens == 10
     assert "generation_stats" not in result.model_dump()
     assert "generation_stats" not in DraftEnvelope.model_json_schema()["properties"]
+
+
+@pytest.mark.parametrize("field", ["purpose", "source", "state", "expected_invariant"])
+def test_coverage_item_rejects_whitespace_only_fields(field):
+    values = {
+        "coverage_id": "COV-CHECKOUT",
+        "purpose": "Purpose",
+        "source": "Source",
+        "state": "State",
+        "expected_invariant": "Expected",
+    }
+    values[field] = " \n\t"
+
+    with pytest.raises(ValidationError):
+        CoverageItem(**values)

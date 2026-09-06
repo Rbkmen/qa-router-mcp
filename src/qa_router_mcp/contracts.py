@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 type CanaryVerdict = Literal["accepted", "edited", "rejected"]
 type CanaryReason = Literal["none", "factual", "coverage", "format", "too_verbose", "other"]
@@ -98,6 +98,14 @@ class CoverageItem(BaseModel):
     source: str = Field(min_length=1)
     state: str = Field(min_length=1)
     expected_invariant: str = Field(min_length=1)
+
+    @field_validator("coverage_id", "purpose", "source", "state", "expected_invariant")
+    @classmethod
+    def reject_blank_fields(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("coverage fields must contain non-whitespace text")
+        return stripped
 
 
 class CanaryFeedbackReceipt(BaseModel):

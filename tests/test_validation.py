@@ -2,10 +2,28 @@ import pytest
 
 from qa_router_mcp.contracts import DraftEnvelope, DraftKind
 from qa_router_mcp.validation import (
+    normalize_test_case_draft,
     repair_instruction,
     requested_case_count,
     validate_generated_draft,
 )
+
+
+def test_nested_json_test_cases_are_normalized_to_plain_text():
+    draft = '[{"Coverage ID":"COV-A","Title":"A","Preconditions":["Ready"],"Steps":["Act","Verify"],"Expected Result":"Success"}]'
+
+    normalized = normalize_test_case_draft(draft)
+
+    assert normalized == (
+        "Coverage ID: COV-A\nTitle: A\nPreconditions: Ready\n"
+        "Steps: 1. Act 2. Verify\nExpected Result: Success"
+    )
+
+
+def test_unknown_nested_test_case_shape_is_not_normalized():
+    draft = '[{"title":"Missing required fields"}]'
+
+    assert normalize_test_case_draft(draft) == draft
 
 
 def test_requested_case_count_supports_english_and_russian():
@@ -199,3 +217,39 @@ def test_automation_skeleton_cannot_contain_git_commit():
         "Draft a skeleton",
         result,
     ) == ["automation_external_write"]
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "curl -X POST https://example.test",
+        "glab mr create --title generated",
+        "kubectl apply -f deployment.yaml",
+        "rm -rf /tmp/generated",
+        "Path('result').write_text(content)",
+        "open('result.txt', 'w')",
+        "fetch(url, {method: 'POST'})",
+        "requests.patch(url, json=payload)",
+        "printf '%s' result > output.txt",
+        "command | tee output.txt",
+    ],
+)
+def test_automation_skeleton_rejects_common_external_and_file_writes(draft):
+    result = DraftEnvelope(draft=draft, unverified=["Review"])
+
+    assert validate_generated_draft(
+        DraftKind.AUTOMATION_SKELETON,
+        "Draft a skeleton",
+        result,
+    ) == ["automation_external_write"]
+
+
+@pytest.mark.parametrize("value", [None, 12, {"nested": "value"}, [None]])
+def test_nested_test_case_invalid_values_are_not_normalized(value):
+    import json
+
+    draft = json.dumps({
+        "Coverage ID": "COV-A", "Title": "Case", "Preconditions": value,
+        "Steps": ["Act"], "Expected Result": "Success",
+    })
+    assert normalize_test_case_draft(draft) == draft

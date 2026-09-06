@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -24,9 +25,11 @@ class EvalDraftBackend:
             raise BackendError(code)
         draft = "Synthetic draft"
         if self.case["kind"] == "test_cases":
+            coverage_ids = re.findall(r"Coverage ID:\s*([A-Z0-9-]+)", self.case["input"])
             draft = "\n\n".join(
                 (
-                    f"Title: Synthetic case {number}\nPreconditions: Ready\n"
+                    (f"Coverage ID: {coverage_ids[number - 1]}\n" if coverage_ids else "")
+                    + f"Title: Synthetic case {number}\nPreconditions: Ready\n"
                     "Steps: 1. Act\nExpected Result: Expected behavior"
                 )
                 for number in range(
@@ -53,6 +56,9 @@ def test_eval_set_contains_required_policy_and_fallback_categories():
     assert {kind: ok_kinds.count(kind) for kind in set(ok_kinds)} == {
         kind.value: 4 for kind in DraftKind
     }
+    assert all("semantic" in case for case in cases if case["expected"] == "ok")
+    test_case_inputs = [case["input"] for case in cases if case["kind"] == "test_cases" and case["expected"] == "ok"]
+    assert all("Coverage ID:" in value for value in test_case_inputs)
 
 
 @pytest.mark.asyncio

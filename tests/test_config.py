@@ -22,7 +22,7 @@ def test_settings_use_pinned_safe_defaults(monkeypatch):
     assert settings.metrics_source == "interactive"
     assert settings.metrics_retention_days == 30
     assert settings.metrics_max_events == 10_000
-    assert settings.profile_version == "router-v10"
+    assert settings.profile_version == "router-v11"
     assert settings.input_limit(DraftKind.SHORT_EXPLANATION) == 6_000
     assert settings.input_limit(DraftKind.LOG_SUMMARY) == 40_000
 
@@ -114,3 +114,16 @@ def test_unpinned_model_or_unknown_metrics_source_is_rejected():
 
 def test_qwen_is_the_only_allowed_local_model():
     assert PINNED_MODELS == {"qwen/qwen3.5-9b"}
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"max_output_tokens": 0},
+        {"max_input_chars": 0},
+        {"timeout_seconds": 0},
+    ],
+)
+def test_runtime_limits_must_be_positive(override):
+    with pytest.raises(ValueError, match="limits must be positive"):
+        Settings(**override)

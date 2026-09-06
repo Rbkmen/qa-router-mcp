@@ -17,10 +17,11 @@ CANARY_TOOL_TARGETS = {
     "log_summary": 10,
     "automation_skeleton": 10,
     "text_summary": 10,
-    "rewrite": 3,
-    "translation": 2,
+    "rewrite": 10,
+    "translation": 10,
+    "short_explanation": 10,
 }
-REVIEWABLE_TOOLS = {*CANARY_TOOL_TARGETS, "short_explanation"}
+REVIEWABLE_TOOLS = set(CANARY_TOOL_TARGETS)
 CANARY_TARGET = sum(CANARY_TOOL_TARGETS.values())
 CANARY_VERDICTS = {"accepted", "edited", "rejected"}
 CANARY_REASONS = {"none", "factual", "coverage", "format", "too_verbose", "other"}
@@ -134,7 +135,7 @@ class JsonEventSink:
             "profile_version": profile_version,
             "source": source,
             "outcome": outcome,
-            "next_route": "local_draft" if outcome == "ok" else "terra",
+            "next_route": "local_draft" if outcome == "ok" else "host_agent",
             "duration_ms": round(duration_ms, 2),
             "error_category": error_category,
             "input_chars": input_chars,
@@ -290,14 +291,14 @@ class JsonEventSink:
             with self._locked_events() as (metrics, events):
                 tool = str(event["tool"])
                 profile_version = str(event["profile_version"])
-                issued = Counter(
-                    str(draft["tool"])
-                    for draft in _issued_canary_drafts(events, profile_version).values()
+                reviewed = Counter(
+                    str(review["tool"])
+                    for review in validated_canary_feedback(events, profile_version)
                 )
                 shadow_sample = event.get("shadow_evaluation_required") is True
                 if not shadow_sample and (
                     tool not in CANARY_TOOL_TARGETS
-                    or issued[tool] >= CANARY_TOOL_TARGETS[tool]
+                    or reviewed[tool] >= CANARY_TOOL_TARGETS[tool]
                 ):
                     self._append_locked(metrics, events, event)
                     print(_serialize(event), file=sys.stderr, flush=True)
@@ -402,7 +403,37 @@ def _valid_feedback_values(verdict: str, reason: str) -> bool:
 def valid_qa_task_metrics(event: dict[str, object]) -> bool:
     if event.get("task_type") not in QA_TASK_TYPES or event.get("outcome") not in QA_TASK_OUTCOMES:
         return False
-    if type(event.get("qwen_used")) is not bool or type(event.get("sol_used")) is not bool:
+    if type(event.get("qwen_used")) is not bool:
+        return False
+    legacy_sol = event.get("sol_used")
+    deep_used = event.get("deep_analysis_used", legacy_sol)
+    if type(deep_used) is not bool:
+        return False
+    if legacy_sol is not None and type(legacy_sol) is not bool:
+        return False
+    if "deep_model" in event and (
+        not deep_used
+        or not isinstance(event["deep_model"], str)
+        or not fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}", event["deep_model"])
+    ):
+        return False
+    if "deep_reasoning" in event and (
+        not deep_used
+        or not isinstance(event["deep_reasoning"], str)
+        or event["deep_reasoning"] not in {
+            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
+        }
+    ):
+        return False
+    if any(
+        field in event and (type(event[field]) is not int or event[field] < 0)
+        for field in ("deep_duration_ms", "deep_input_tokens", "deep_output_tokens")
+    ):
+        return False
+    if not deep_used and any(
+        event.get(field, 0) > 0
+        for field in ("deep_duration_ms", "deep_input_tokens", "deep_output_tokens")
+    ):
         return False
     if any(type(event.get(field)) is not int or event[field] < 0 for field in QA_TASK_COUNTERS):
         return False

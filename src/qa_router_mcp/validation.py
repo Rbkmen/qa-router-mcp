@@ -1,3 +1,4 @@
+import json
 import re
 
 from qa_router_mcp.contracts import DraftEnvelope, DraftKind
@@ -57,8 +58,22 @@ COUNT_WORDS = {
     "двадцать": 20,
 }
 EXTERNAL_WRITE = re.compile(
-    r"(?i)\b(?:git\s+(?:commit|push)|commit\s*=\s*true|jira_add_comment|"
-    r"testrail_(?:create|update|add|delete))\b"
+    r"(?ix)(?:"
+    r"\bgit\s+(?:commit|push|merge|tag|reset\s+--hard)\b|"
+    r"\bglab\s+(?:mr|issue|release)\s+(?:create|merge|delete|close|update|approve)\b|"
+    r"\bkubectl\s+(?:apply|create|delete|patch|replace|scale|edit|set)\b|"
+    r"\bcurl\b[^\n]*(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b|"
+    r"\bfetch\s*\([^\n]*(?:method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)['\"])[^\n]*\)|"
+    r"\b(?:requests|httpx|axios)\.(?:post|put|patch|delete)\s*\(|"
+    r"\b(?:rm|unlink|rmdir)\s+(?:-[^\s]+\s+)*[^\s]+|"
+    r"\b(?:echo|printf|cat|sed|awk)\b[^\n]*(?:>>?|2>)\s*\S|"
+    r"\btee(?:\s+-a)?\s+\S|"
+    r"\b(?:writeFile|write_text|write_bytes|appendFile|truncate)\s*\(|"
+    r"\bopen\s*\([^\n]*,\s*['\"](?:w|a|x)[+b]?['\"]|"
+    r"\bcommit\s*=\s*true\b|"
+    r"\bjira_(?:add_comment|transition|create|update|delete)[a-z_]*\b|"
+    r"\btestrail_(?:create|update|add|delete)[a-z_]*\b"
+    r")"
 )
 
 
@@ -115,6 +130,52 @@ def validate_generated_draft(
         issues.append("automation_external_write")
 
     return issues
+
+
+def normalize_test_case_draft(draft: str) -> str:
+    """Convert a nested JSON test-case draft to the required plain-text heading format."""
+    try:
+        parsed = json.loads(draft)
+    except (json.JSONDecodeError, TypeError):
+        return draft
+    items = [parsed] if isinstance(parsed, dict) else parsed
+    if not isinstance(items, list) or not items or not all(isinstance(item, dict) for item in items):
+        return draft
+
+    required = ("coverage id", "title", "preconditions", "steps", "expected result")
+    blocks: list[str] = []
+    for item in items:
+        normalized = {str(key).strip().casefold().replace("_", " "): value for key, value in item.items()}
+        if set(normalized) != set(required) or len(normalized) != len(item):
+            return draft
+        if any(
+            not isinstance(value, str)
+            and not (isinstance(value, list) and all(isinstance(part, str) for part in value))
+            for value in normalized.values()
+        ):
+            return draft
+        values = {key: _plain_text_value(normalized[key], numbered=key == "steps") for key in required}
+        blocks.append(
+            "\n".join(
+                (
+                    f"Coverage ID: {values['coverage id']}",
+                    f"Title: {values['title']}",
+                    f"Preconditions: {values['preconditions']}",
+                    f"Steps: {values['steps']}",
+                    f"Expected Result: {values['expected result']}",
+                )
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def _plain_text_value(value: object, *, numbered: bool = False) -> str:
+    if isinstance(value, list):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        if numbered:
+            return " ".join(f"{index}. {part}" for index, part in enumerate(parts, start=1))
+        return "; ".join(parts)
+    return str(value).strip()
 
 
 def _has_empty_field(block: str, pattern: re.Pattern[str]) -> bool:
@@ -175,5 +236,6 @@ def repair_instruction(issues: list[str]) -> str:
     return (
         "REPAIR_REQUIRED: regenerate the complete artifact and fix these validation errors: "
         + "; ".join(requirements)
-        + ". Return only JSON matching the schema."
+        + ". Keep draft as one plain-text string with literal headings; never put a nested JSON "
+        "array or object inside draft. Return only JSON matching the schema."
     )

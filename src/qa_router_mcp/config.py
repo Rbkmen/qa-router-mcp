@@ -48,7 +48,7 @@ class Settings:
     metrics_source: str = "interactive"
     metrics_retention_days: int = 30
     metrics_max_events: int = 10_000
-    profile_version: str = "router-v10"
+    profile_version: str = "router-v11"
     data_dir: Path = Path.home() / ".qa-router"
 
     def input_limit(self, kind: DraftKind) -> int:
@@ -101,6 +101,8 @@ class Settings:
             raise ValueError("LM Studio URL must use loopback")
         if self.ttl_seconds < 0:
             raise ValueError("TTL must be non-negative")
+        if self.max_output_tokens < 1 or self.max_input_chars < 1 or self.timeout_seconds <= 0:
+            raise ValueError("input, output, and timeout limits must be positive")
         if not 0 < self.context_reserve_tokens < self.context:
             raise ValueError("context reserve must fit the verified context")
         if self.metrics_source not in METRICS_SOURCES:

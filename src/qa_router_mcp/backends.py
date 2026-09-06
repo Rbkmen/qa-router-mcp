@@ -42,7 +42,7 @@ class LMStudioDraftBackend:
         self.client = client or httpx.AsyncClient(timeout=settings.timeout_seconds)
         self._gate = asyncio.Semaphore(settings.max_parallel)
 
-    def _count_tokens_sync(self, prompt: str) -> TokenCount:
+    def _count_messages_sync(self, messages: list[dict[str, str]]) -> TokenCount:
         api_host = urlsplit(self.settings.lmstudio_url).netloc
         client = _lmstudio_client(api_host)
         cold_start = not any(
@@ -56,7 +56,7 @@ class LMStudioDraftBackend:
         )
         model_load_ms = (monotonic() - load_started) * 1_000 if cold_start else 0.0
         tokenization_started = monotonic()
-        chat = lms.Chat.from_history({"messages": [{"role": "user", "content": prompt}]})
+        chat = lms.Chat.from_history({"messages": messages})
         formatted_prompt = model.apply_prompt_template(chat)
         tokens = len(model.tokenize(formatted_prompt))
         return TokenCount(
@@ -66,20 +66,23 @@ class LMStudioDraftBackend:
             cold_start=cold_start,
         )
 
+    def _count_tokens_sync(self, prompt: str) -> TokenCount:
+        return self._count_messages_sync([{"role": "user", "content": prompt}])
+
     async def count_tokens(self, prompt: str) -> TokenCount:
         try:
-            return await asyncio.to_thread(self._count_tokens_sync, prompt)
+            async with self._gate:
+                return await asyncio.to_thread(self._count_tokens_sync, prompt)
         except Exception as exc:
             raise BackendError("local_tokenizer_error") from exc
 
     async def _request(self, payload: dict[str, object]) -> tuple[str, GenerationStats]:
         try:
-            async with self._gate:
-                response = await self.client.post(
-                    f"{self.settings.lmstudio_url}/v1/chat/completions",
-                    json=payload,
-                )
-                response.raise_for_status()
+            response = await self.client.post(
+                f"{self.settings.lmstudio_url}/v1/chat/completions",
+                json=payload,
+            )
+            response.raise_for_status()
             body = response.json()
             message = body["choices"][0]["message"]
             if not isinstance(message, dict):
@@ -136,6 +139,20 @@ class LMStudioDraftBackend:
         max_output_tokens: int | None = None,
         allow_schema_repair: bool = True,
     ) -> DraftEnvelope:
+        async with self._gate:
+            return await self._generate_unlocked(
+                prompt,
+                max_output_tokens=max_output_tokens,
+                allow_schema_repair=allow_schema_repair,
+            )
+
+    async def _generate_unlocked(
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+        allow_schema_repair: bool = True,
+    ) -> DraftEnvelope:
         response_schema = _response_schema()
         payload: dict[str, object] = {
             "model": self.settings.model,
@@ -178,6 +195,18 @@ class LMStudioDraftBackend:
                         ),
                     }
                 )
+                try:
+                    repair_tokens = await asyncio.to_thread(self._count_messages_sync, messages)
+                except Exception as tokenizer_error:
+                    raise BackendError("local_tokenizer_error", stats) from tokenizer_error
+                output_limit = int(payload["max_tokens"])
+                if (
+                    repair_tokens.tokens
+                    + output_limit
+                    + self.settings.context_reserve_tokens
+                    > self.settings.context
+                ):
+                    raise BackendError("local_model_token_budget_exceeded", stats)
         raise BackendError("local_model_invalid_schema", stats)
 
 

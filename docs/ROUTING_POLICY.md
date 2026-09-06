@@ -75,17 +75,17 @@ Do not invent, reuse, or persist draft IDs. If the router refuses or falls back,
 - `canary`: route normally, but review feedback is requested until enough evidence exists;
 - `paused`: do not use that local route; continue in the host agent.
 
-The gate uses the latest 20 reviewed drafts for the current profile. From 10 reviews, at least 80% acceptable drafts activate the route, while at least 20% serious factual or coverage corrections pause it. Translation, rewrite, source-bound summary, and short explanation start active; test cases, log summaries, and automation skeletons start in canary.
+The gate uses the latest 20 reviewed drafts for the current profile. Every tool requests feedback for its first 10 reviewed drafts, even when its initial route is active. From 10 reviews, at least 80% acceptable drafts activate the route, while at least 20% serious factual or coverage corrections pause it. Translation, rewrite, source-bound summary, and short explanation start active; test cases, log summaries, and automation skeletons start in canary.
 
 When `shadow_evaluation_required` is true, create a separate host-agent baseline from the same sanitized Evidence Packet without incorporating the Qwen draft, compare both outputs, and use that comparison for the required content-free feedback. This flag is selected deterministically for approximately 10% of successful interactive drafts. It is a practical shadow check rather than a blind experiment because the flag arrives with the local result. QA Router never starts an extra cloud request itself.
 
-After every QA task reaches `completed`, `partial`, or `blocked`, call `record_qa_task_outcome` exactly once. Send counters and booleans only; never include ticket IDs, titles, source text, code, logs, paths, or draft content. `source_mcp_calls` counts Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence retrieval only; exclude CodeGraph, QA Router calls, and the outcome call itself.
+After every QA task reaches `completed`, `partial`, or `blocked`, call `record_qa_task_outcome` exactly once. Send counters and booleans only; never include ticket IDs, titles, source text, code, logs, paths, or draft content. Use `deep_analysis_used`, `deep_model`, and `deep_reasoning` for optional client-owned deep analysis; include `deep_duration_ms`, `deep_input_tokens`, and `deep_output_tokens` when measurable. The legacy `sol_used` input remains accepted for older clients. `source_mcp_calls` counts Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence retrieval only; exclude CodeGraph, QA Router calls, and the outcome call itself.
 
 When measurable, also send token counters: `codegraph_response_tokens`, `source_mcp_response_tokens`, and `avoided_source_read_tokens`. They are aggregate counts only. Omit a counter when it cannot be measured; `0` means it was measured and its actual value was zero. `avoided_source_read_tokens` is an estimate of source output that was not retrieved because CodeGraph answered the same bounded question; do not report it as an exact counterfactual.
 
 ## Optional deep analysis
 
-Deep-analysis agents are client-owned and are not part of QA Router. A host may use one bounded read-only specialist for difficult cross-repository reasoning, conflicting evidence, security-sensitive work, or high-blast-radius edge cases. The host still makes the final decision.
+Deep-analysis agents are client-owned and are not part of QA Router. A host may use one bounded read-only specialist for difficult cross-repository reasoning, conflicting evidence, security-sensitive work, or high-blast-radius edge cases. Sol can remain the control while Astra is evaluated as a canary on identical evidence packets. The host still makes the final decision.
 
 ## Persistence
 

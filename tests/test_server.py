@@ -6,6 +6,7 @@ from fastmcp.exceptions import ToolError
 
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import DraftEnvelope
+from qa_router_mcp.events import CANARY_TARGET
 from qa_router_mcp.server import build_server
 from qa_router_mcp.service import RouterService
 
@@ -35,7 +36,7 @@ async def test_numeric_coverage_ids_survive_full_tool_flow(tmp_path, legacy):
     class CoverageEcho(DraftFake):
         async def generate(self, prompt, **kwargs):
             self.prompts.append(prompt)
-            ids = re.findall(r"(?m)^Coverage ID: (COV-\d+)$", prompt)
+            ids = list(dict.fromkeys(re.findall(r"(?m)^Coverage ID: (COV-\d+)$", prompt)))
             return DraftEnvelope(
                 draft="\n\n".join(
                     f"Coverage ID: {item}\nTitle: Case\nPreconditions: Ready\n"
@@ -99,6 +100,12 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
             "codegraph_response_tokens",
             "source_mcp_response_tokens",
             "avoided_source_read_tokens",
+            "deep_analysis_used",
+            "deep_model",
+            "deep_reasoning",
+            "deep_duration_ms",
+            "deep_input_tokens",
+            "deep_output_tokens",
         } <= outcome_fields.keys()
 
         result = await client.call_tool(
@@ -133,7 +140,7 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
         assert feedback.structured_content == {
             "status": "recorded",
             "feedback_count": 1,
-            "target": 50,
+            "target": CANARY_TARGET,
         }
 
         task_outcome = await client.call_tool(
