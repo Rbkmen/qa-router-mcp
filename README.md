@@ -2,7 +2,27 @@
 
 A privacy-aware local MCP server that delegates bounded, sanitized QA drafting tasks from AI coding agents to Qwen3.5-9B through LM Studio and MLX. The calling agent remains the primary orchestrator and owns evidence gathering, final QA judgment, code changes, and every external-system write.
 
-![QA workflow architecture](docs/assets/qa-workflow-architecture.png)
+## Architecture at a glance
+
+[![QA Router overview: primary agent, authoritative sources, local Qwen drafts, optional Sol review and final QA output](docs/assets/qa-router-overview.svg)](docs/assets/qa-router-overview.svg)
+
+[Open overview SVG](docs/assets/qa-router-overview.svg)
+
+## Detailed workflow
+
+[![QA Router workflow: host evidence gathering, local Qwen drafting, validation, host review and quality feedback](docs/assets/qa-router-workflow.svg)](docs/assets/qa-router-workflow.svg)
+
+[Open full-size SVG](docs/assets/qa-router-workflow.svg) · [Download PNG](docs/assets/qa-router-workflow.png)
+
+## How a request moves through QA Router
+
+1. **The host gathers evidence and decides what to delegate.** Codex, Claude Code, Cursor, or another MCP client reads the relevant sources and code. Its routing instructions select sufficiently large routine tasks and prepare a minimal sanitized packet. For test cases, the host decides coverage first and supplies stable `COV-*` IDs. These routing thresholds are client instructions; they are separate from server-side input limits.
+2. **The local MCP server checks the request.** QA Router checks whether delegation is enabled and the tool is paused, rejects detected sensitive data and prohibited decision requests, enforces input limits, and replaces recognized identifiers. It builds a task-specific prompt and verifies that prompt tokens, the adaptive output budget, and a 512-token reserve fit the 16,384-token context.
+3. **Qwen produces a draft.** The server calls `qwen/qwen3.5-9b` through loopback LM Studio/MLX with structured JSON output. Model operations are serialized. Transport failures receive one retry per request; schema and artifact errors have bounded repair attempts, with context capacity checked again before each repair.
+4. **Validation returns a draft or hands control back.** Successful results include `draft`, `assumptions`, `unverified`, and quality/feedback flags. Test cases must match the requested IDs, count, and required fields; automation drafts are checked for known write patterns. A policy refusal or runtime/validation failure returns control to the host. An `ok` result means the automated checks passed, not that the content is factually proven.
+5. **The host reviews and records the outcome.** It checks the draft against evidence, corrects or discards it, and owns the final answer and any authorized external writes. Requested draft feedback updates the per-tool quality gate. A separate task-outcome event records content-free counters; available `deep_*` fields identify optional client-owned deep analysis. The router never invokes a cloud model, trains Qwen, or stores task content as QA memory.
+
+The diagram shows the current workspace's optional read-only Sol/high `qa_deep` role. That role is configured by the host client, not by QA Router. Astra is a possible comparison candidate; this diagram does not imply that an Astra route is enabled.
 
 ## Reference architecture
 
