@@ -31,10 +31,10 @@
 <path d="M940,338 L1000,338" fill="none" stroke="#7896b9" stroke-width="2.4" stroke-dasharray="7 7" marker-end="url(#arrow)"/>
 <rect x="56" y="446" width="1326" height="137" rx="16" fill="#192a43" stroke="#3e587b"/>
 <text x="80" y="478" class="label">HOST ROUTING RULES</text>
-<text x="80" y="514" class="body">Test cases: 4–12 approved items</text>
-<text x="80" y="545" class="body">Logs: ≥6,000 sanitized characters</text>
-<text x="512" y="514" class="body">Summaries: ≥4,000 characters</text>
-<text x="512" y="545" class="body">Translation / rewrite: ≥2,000 chars</text>
+<text x="80" y="514" class="body">Test cases: 2–12 approved items</text>
+<text x="80" y="545" class="body">Logs: ≥3,000 sanitized characters</text>
+<text x="512" y="514" class="body">Summaries: ≥2,000 characters</text>
+<text x="512" y="545" class="body">Translation / rewrite: ≥1,000 chars</text>
 <text x="976" y="514" class="body">Skeleton: scenario + project pattern</text>
 <text x="976" y="545" class="body">Small tasks stay with the host</text>
 <text x="58" y="643" class="small">Explicit local requests may override size thresholds. Short explanations require an explicit request.</text>

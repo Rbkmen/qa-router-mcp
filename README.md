@@ -12,7 +12,7 @@ A privacy-aware local MCP server that delegates bounded, sanitized QA drafting t
 
 [![QA Router workflow: host evidence gathering, local Qwen drafting, validation, host review and quality feedback](docs/assets/qa-router-workflow.svg)](docs/assets/qa-router-workflow.svg)
 
-[Open full-size SVG](docs/assets/qa-router-workflow.svg) · [Download PNG](docs/assets/qa-router-workflow.png)
+[Open full-size SVG](docs/assets/qa-router-workflow.svg)
 
 ## How a request moves through QA Router
 
@@ -56,13 +56,14 @@ All clients share one authoritative [routing policy](docs/ROUTING_POLICY.md). Cl
 | `rewrite_text` | Shorten, correct, or restyle text without adding facts | 12,000 chars | 1,536 tokens |
 | `explain_short` | Explain a stable topic briefly | 6,000 chars | 512 tokens |
 | `summarize_text` | Produce a source-bound summary | 24,000 chars | 2,048 tokens |
+| `get_metrics_report` | Read content-free operational metrics for a positive time window | — | — |
 
-The automatic route is intentionally selective:
+The automatic route is intentionally limited to routine, reviewable drafts:
 
-- 4–12 test cases;
-- logs from 6,000 characters;
-- source-bound summaries from 4,000 characters;
-- translations or rewrites from 2,000 characters;
+- 2–12 approved test cases;
+- logs from 3,000 characters;
+- source-bound summaries from 2,000 characters;
+- translations or rewrites from 1,000 characters;
 - automation skeletons only when an explicit project pattern and a multi-step scenario are provided.
 
 Smaller tasks stay in the host agent. `explain_short` is local only when explicitly requested. An explicit local-model request may override size thresholds, but never policy restrictions.

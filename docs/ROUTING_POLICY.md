@@ -17,12 +17,12 @@ Qwen3.5-9B produces bounded drafts only. Its output is never evidence, a final Q
 
 ## Automatic routing thresholds
 
-Use QA Router automatically only for:
+For every sanitized routine draft, first check this list. Call QA Router when one condition matches:
 
-- 4–12 test cases based on a coverage map already approved by the host agent;
-- sanitized logs containing at least 6,000 characters;
-- source-bound summaries containing at least 4,000 characters;
-- translations or rewrites containing at least 2,000 characters;
+- 2–12 approved test cases based on a coverage map already approved by the host agent;
+- sanitized logs containing at least 3,000 characters;
+- source-bound summaries containing at least 2,000 characters;
+- translations or rewrites containing at least 1,000 characters;
 - automation skeletons with an explicit project pattern and a multi-step scenario.
 
 Keep smaller tasks in the host agent. Use `explain_short` locally only when the user explicitly requests the local model. An explicit request may override a size threshold, but never a security or validation rule.

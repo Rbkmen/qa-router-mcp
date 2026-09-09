@@ -9,10 +9,12 @@ Use only `qwen/qwen3.5-9b` after Codex selects the smallest relevant sanitized p
 
 ## Route automatically
 
-- `draft_test_cases`: 4–12 approved coverage-map items, exactly one per requested case.
-- `summarize_logs`: at least 6,000 characters; group visible signatures only.
-- `summarize_text`: at least 4,000 characters; use only supplied facts.
-- `translate_text` or `rewrite_text`: at least 2,000 characters.
+For every sanitized routine draft, check these conditions before drafting in Codex. Call QA Router when one condition matches.
+
+- `draft_test_cases`: 2–12 approved test cases from the coverage map, exactly one per requested case.
+- `summarize_logs`: at least 3,000 characters; group visible signatures only.
+- `summarize_text`: at least 2,000 characters; use only supplied facts.
+- `translate_text` or `rewrite_text`: at least 1,000 characters.
 - `draft_automation_skeleton`: an explicit project pattern and a multi-step scenario.
 
 Keep smaller tasks in the primary agent. Use `explain_short` only when the user explicitly requests local Qwen. An explicit local-model request may override the size threshold when policy permits.

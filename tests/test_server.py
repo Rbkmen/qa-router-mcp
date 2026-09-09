@@ -94,6 +94,7 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
             "summarize_text",
             "record_canary_feedback",
             "record_qa_task_outcome",
+            "get_metrics_report",
         }
         outcome_fields = tools["record_qa_task_outcome"].inputSchema["properties"]
         assert {
@@ -160,6 +161,19 @@ async def test_server_exposes_drafting_and_metrics_tools(tmp_path):
             },
         )
         assert task_outcome.structured_content == {"status": "recorded"}
+
+        report = await client.call_tool("get_metrics_report", {"days": 7})
+        assert report.structured_content["qa_tasks"]["events"] == 1
+        assert report.structured_content["qa_tasks"]["qwen_tasks"] == 1
+
+
+@pytest.mark.asyncio
+async def test_metrics_report_rejects_non_positive_days(tmp_path):
+    service = RouterService(Settings(data_dir=tmp_path), DraftFake())
+
+    async with Client(build_server(service)) as client:
+        with pytest.raises(ToolError, match="days must be positive"):
+            await client.call_tool("get_metrics_report", {"days": 0})
 
 
 @pytest.mark.asyncio

@@ -58,6 +58,13 @@ def test_launcher_is_executable_valid_shell():
     assert os.access(LAUNCHER, os.X_OK)
 
 
+def test_launcher_forwards_metrics_overrides():
+    content = LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'QA_ROUTER_METRICS_RETENTION_DAYS="${QA_ROUTER_METRICS_RETENTION_DAYS:-30}"' in content
+    assert 'QA_ROUTER_METRICS_MAX_EVENTS="${QA_ROUTER_METRICS_MAX_EVENTS:-10000}"' in content
+
+
 def test_client_guides_and_rule_templates_are_distributed():
     for relative_path, required_fragments in CLIENT_ARTIFACTS.items():
         artifact = ROOT / relative_path
@@ -65,6 +72,32 @@ def test_client_guides_and_rule_templates_are_distributed():
         content = artifact.read_text(encoding="utf-8")
         for fragment in required_fragments:
             assert fragment in content, f"{fragment!r} missing from {relative_path}"
+
+
+def test_routing_artifacts_use_expanded_local_draft_thresholds():
+    required_fragments = {
+        "2–12 approved test cases",
+        "3,000 characters",
+        "2,000 characters",
+        "1,000 characters",
+    }
+    artifacts = (
+        "README.md",
+        "docs/ROUTING_POLICY.md",
+        "codex/skills/qa-local-routing/SKILL.md",
+        "client-rules/claude-code/CLAUDE.md",
+        "client-rules/cursor/qa-router.mdc",
+        "client-rules/generic/QA_ROUTER_INSTRUCTIONS.md",
+    )
+
+    for relative_path in artifacts:
+        content = (ROOT / relative_path).read_text(encoding="utf-8")
+        for fragment in required_fragments:
+            assert fragment in content, f"{fragment!r} missing from {relative_path}"
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "docs/assets/qa-router-workflow.svg" in readme
+    assert "Download PNG" not in readme
 
 
 @pytest.mark.asyncio

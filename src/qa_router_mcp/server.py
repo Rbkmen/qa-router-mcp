@@ -14,6 +14,7 @@ from qa_router_mcp.contracts import (
     QaTaskType,
 )
 from qa_router_mcp.events import JsonEventSink
+from qa_router_mcp.report import summarize_events
 from qa_router_mcp.service import RouterService
 
 
@@ -167,6 +168,18 @@ def build_server(service: RouterService) -> FastMCP:
             source_mcp_response_tokens=source_mcp_response_tokens,
             avoided_source_read_tokens=avoided_source_read_tokens,
         )
+
+    @mcp.tool
+    def get_metrics_report(days: int = 7) -> dict[str, object]:
+        """Read the content-free QA Router metrics report for a positive time window."""
+        if days < 1:
+            raise ValueError("days must be positive")
+        path = service.settings.metrics_path
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        except OSError as exc:
+            raise RuntimeError("metrics_unavailable") from exc
+        return summarize_events(lines, days=days)
 
     return mcp
 
