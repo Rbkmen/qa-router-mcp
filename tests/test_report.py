@@ -99,6 +99,7 @@ def test_weekly_report_aggregates_phase_latency_shadow_and_quality_status():
                 "generation_ms": 30.0,
                 "validation_ms": 2.0,
                 "repair_ms": 0.0,
+                "phase_latency_available": True,
                 "cold_start_likely": True,
                 "quality_status": "canary",
                 "shadow_evaluation_required": True,
@@ -119,6 +120,7 @@ def test_weekly_report_aggregates_phase_latency_shadow_and_quality_status():
                 "generation_ms": 15.0,
                 "validation_ms": 1.0,
                 "repair_ms": 0.0,
+                "phase_latency_available": True,
                 "cold_start_likely": False,
                 "quality_status": "active",
                 "shadow_evaluation_required": False,
@@ -143,6 +145,56 @@ def test_weekly_report_aggregates_phase_latency_shadow_and_quality_status():
     assert report["cold_start_likely"] == {"false": 1, "true": 1}
     assert report["shadow_evaluations"] == {"requested": 1, "rate": 0.5}
     assert report["quality_statuses"] == {"active": 1, "canary": 1}
+
+
+def test_report_exposes_data_completeness_for_model_comparisons():
+    timestamp = datetime.now(UTC).isoformat()
+    lines = [
+        json.dumps(
+            {
+                "schema_version": 7,
+                "timestamp": timestamp,
+                "tool": "translation",
+                "outcome": "ok",
+                "prompt_tokens": 10,
+                "output_tokens": 5,
+                "requests": 1,
+                "token_usage_available": True,
+                "model_load_ms": 1.0,
+                "tokenization_ms": 1.0,
+                "generation_ms": 2.0,
+                "validation_ms": 1.0,
+                "repair_ms": 0.0,
+                "phase_latency_available": True,
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 7,
+                "timestamp": timestamp,
+                "tool": "translation",
+                "outcome": "fallback",
+                "prompt_tokens": 0,
+                "output_tokens": 0,
+                "requests": 1,
+                "token_usage_available": False,
+                "model_load_ms": 0.0,
+                "tokenization_ms": 0.0,
+                "generation_ms": 0.0,
+                "validation_ms": 0.0,
+                "repair_ms": 0.0,
+                "phase_latency_available": False,
+            }
+        ),
+    ]
+
+    assert summarize_events(lines)["data_quality"] == {
+        "generation_events": 2,
+        "complete_token_usage_events": 1,
+        "complete_phase_latency_events": 1,
+        "complete_token_usage_rate": 0.5,
+        "complete_phase_latency_rate": 0.5,
+    }
 
 
 def test_weekly_report_separates_canary_feedback_from_generation_events():

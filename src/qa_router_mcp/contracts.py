@@ -26,13 +26,26 @@ class GenerationStats:
     output_tokens: int = 0
     requests: int = 0
     truncated: bool = False
+    usage_available: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.usage_available is None:
+            inferred = self.requests > 0 and (self.prompt_tokens > 0 or self.output_tokens > 0)
+            object.__setattr__(self, "usage_available", inferred)
 
     def merged(self, other: "GenerationStats") -> "GenerationStats":
+        if self.requests == 0:
+            usage_available = other.usage_available
+        elif other.requests == 0:
+            usage_available = self.usage_available
+        else:
+            usage_available = self.usage_available and other.usage_available
         return GenerationStats(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             requests=self.requests + other.requests,
             truncated=self.truncated or other.truncated,
+            usage_available=usage_available,
         )
 
 

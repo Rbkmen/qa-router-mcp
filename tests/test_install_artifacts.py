@@ -1,4 +1,5 @@
 import os
+import plistlib
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from fastmcp.client.transports import StdioTransport
 
 ROOT = Path(__file__).parents[1]
 LAUNCHER = ROOT / "scripts/qa-router-mcp"
+LLMSTER_PLIST = ROOT / "launchd/com.qa-router.llmster.plist"
 
 CLIENT_ARTIFACTS = {
     "docs/ROUTING_POLICY.md": [
@@ -56,6 +58,24 @@ def test_launcher_is_executable_valid_shell():
 
     assert result.returncode == 0, result.stderr
     assert os.access(LAUNCHER, os.X_OK)
+
+
+def test_llmster_launcher_and_plist_keep_http_runtime_healthy():
+    plist = LLMSTER_PLIST.read_text(encoding="utf-8")
+    assert "server start" in plist
+    assert "127.0.0.1" in plist
+    assert "KeepAlive" in plist
+
+    payload = plistlib.loads(LLMSTER_PLIST.read_bytes())
+    script = payload["ProgramArguments"][2]
+    result = subprocess.run(
+        ["/bin/sh", "-n"],
+        input=script,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_launcher_forwards_metrics_overrides():

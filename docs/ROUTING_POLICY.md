@@ -46,8 +46,8 @@ If the router returns `sensitive_data_detected`, use only its coarse `sensitive_
 
 - `draft_test_cases`: expand an approved 1–12 item coverage map. Each item must contain a unique stable `coverage_id` in `COV-*` format, one purpose, confirmed source, state or branch, and expected invariant. The result must repeat every supplied ID exactly once.
 - `summarize_logs`: group only visible signatures. Do not accept an inferred root cause without separate evidence.
-- `draft_automation_skeleton`: draft structure from an explicit project pattern. The tool must not write files or external data.
-- `translate_text`: translate sanitized text while preserving supplied terminology.
+- `draft_automation_skeleton`: draft structure from an explicit project pattern. The tool must not write files or external data; generated Python snippets are checked for file, process, and network mutations.
+- `translate_text`: translate sanitized text while preserving supplied terminology. Every supplied preserve term must appear verbatim in the returned draft.
 - `rewrite_text`: shorten, correct, or restyle supplied text without adding facts.
 - `summarize_text`: summarize only supplied source material.
 - `explain_short`: explain stable, non-researched material only after an explicit local-model request.
@@ -82,6 +82,8 @@ When `shadow_evaluation_required` is true, create a separate host-agent baseline
 After every QA task reaches `completed`, `partial`, or `blocked`, call `record_qa_task_outcome` exactly once. Send counters and booleans only; never include ticket IDs, titles, source text, code, logs, paths, or draft content. Use `deep_analysis_used`, `deep_model`, and `deep_reasoning` for optional client-owned deep analysis; include `deep_duration_ms`, `deep_input_tokens`, and `deep_output_tokens` when measurable. The legacy `sol_used` input remains accepted for older clients. `source_mcp_calls` counts Jira, GitLab, TestRail, Sentry, Grafana, OpenSearch, Slack, and Confluence retrieval only; exclude CodeGraph, QA Router calls, and the outcome call itself.
 
 When measurable, also send token counters: `codegraph_response_tokens`, `source_mcp_response_tokens`, and `avoided_source_read_tokens`. They are aggregate counts only. Omit a counter when it cannot be measured; `0` means it was measured and its actual value was zero. `avoided_source_read_tokens` is an estimate of source output that was not retrieved because CodeGraph answered the same bounded question; do not report it as an exact counterfactual.
+
+Generation metrics include explicit `token_usage_available` and `phase_latency_available` flags. The report counts a measurement as complete only when its flag is true; zero-filled fields on refusals, transport failures, or calls without provider usage do not count as measured data. A zero `repair_ms` on a complete event means that no repair was needed.
 
 ## Optional deep analysis
 

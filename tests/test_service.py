@@ -1,4 +1,6 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from fcntl import LOCK_EX, LOCK_UN, flock
 
 import pytest
 
@@ -51,6 +53,72 @@ async def test_draft_sanitizes_transient_identifiers(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_examples_do_not_become_required_coverage_ids(tmp_path):
+    class StableDraft:
+        async def count_tokens(self, prompt):
+            return 100
+
+        async def generate(self, prompt, *, max_output_tokens=None, allow_schema_repair=True):
+            return DraftEnvelope(
+                draft=(
+                    "Coverage ID: COV-REAL\nTitle: Case\nPreconditions: Ready\n"
+                    "Steps: 1. Act\nExpected Result: Success"
+                ),
+                unverified=[],
+            )
+
+    service = RouterService(Settings(data_dir=tmp_path), StableDraft())
+
+    result = await service.draft(
+        DraftKind.TEST_CASES,
+        "Draft exactly 1 test case\nAPPROVED_COVERAGE_MAP:\nCoverage ID: COV-REAL\n"
+        "Purpose: checkout\nEXAMPLES:\nCoverage ID: COV-EXAMPLE",
+        expected_coverage_ids=("COV-REAL",),
+    )
+
+    assert result.status == "ok"
+
+
+def test_quality_gate_waits_for_shared_metrics_lock(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    path.write_text('{"timestamp":"2026-01-01T00:00:00+00:00"}\n')
+    sink = JsonEventSink(path)
+    with path.open("a+") as metrics:
+        flock(metrics.fileno(), LOCK_EX)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(sink.quality_gate, "translation", "router-v11")
+                assert not future.done()
+                flock(metrics.fileno(), LOCK_UN)
+                future.result(timeout=1)
+        finally:
+            try:
+                flock(metrics.fileno(), LOCK_UN)
+            except OSError:
+                pass
+
+
+def test_quality_gate_fails_closed_when_metrics_are_corrupt(tmp_path):
+    path = tmp_path / "metrics.jsonl"
+    path.write_text("not-json\n")
+
+    gate = JsonEventSink(path).quality_gate("translation", "router-v11")
+
+    assert gate.status == "paused"
+
+
+def test_quality_gate_fails_closed_when_metrics_cannot_be_read(tmp_path, monkeypatch):
+    sink = JsonEventSink(tmp_path / "metrics.jsonl")
+
+    def unavailable(_):
+        raise OSError("read failed")
+
+    monkeypatch.setattr("qa_router_mcp.events.read_metrics_lines", unavailable)
+
+    assert sink.quality_gate("translation", "router-v11").status == "paused"
+
+
+@pytest.mark.asyncio
 async def test_policy_failure_returns_refusal_without_backend_call(tmp_path):
     drafting = DraftFake(DraftEnvelope(draft="unused", unverified=["unused"]))
     service = RouterService(Settings(data_dir=tmp_path), drafting)
@@ -62,6 +130,9 @@ async def test_policy_failure_returns_refusal_without_backend_call(tmp_path):
     assert result.sensitive_category == "possible_secret"
     assert drafting.prompts == []
     assert drafting.token_prompts == []
+    event = json.loads((tmp_path / "metrics.jsonl").read_text())
+    assert event["token_usage_available"] is False
+    assert event["phase_latency_available"] is False
 
 
 @pytest.mark.parametrize(
@@ -255,6 +326,7 @@ async def test_generation_event_records_phase_timings_and_cold_start_hint(tmp_pa
     assert all(event["validation_ms"] >= 0 for event in events)
     assert all(event["repair_ms"] >= 0 for event in events)
     assert all(event["duration_ms"] >= event["generation_ms"] for event in events)
+    assert all(event["phase_latency_available"] is True for event in events)
 
 
 @pytest.mark.asyncio
@@ -459,6 +531,7 @@ def test_event_sink_logs_usage_without_content(capsys, tmp_path):
     assert event["context_tokens"] == 16_384
     assert event["prompt_tokens"] == 20
     assert event["output_tokens"] == 10
+    assert event["token_usage_available"] is True
     assert event["input_chars"] == 50
     assert "Translated text" not in path.read_text()
     assert path.stat().st_mode & 0o777 == 0o600

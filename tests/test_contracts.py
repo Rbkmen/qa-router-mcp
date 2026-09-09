@@ -38,8 +38,17 @@ def test_generation_stats_are_runtime_only():
     result.set_generation_stats(GenerationStats(prompt_tokens=20, output_tokens=10, requests=1))
 
     assert result.generation_stats.output_tokens == 10
+    assert result.generation_stats.usage_available is True
     assert "generation_stats" not in result.model_dump()
     assert "generation_stats" not in DraftEnvelope.model_json_schema()["properties"]
+
+
+def test_generation_stats_merge_requires_usage_for_every_request():
+    measured = GenerationStats(prompt_tokens=20, output_tokens=10, requests=1)
+    unavailable = GenerationStats(requests=1)
+
+    assert GenerationStats().merged(measured).usage_available is True
+    assert measured.merged(unavailable).usage_available is False
 
 
 @pytest.mark.parametrize("field", ["purpose", "source", "state", "expected_invariant"])

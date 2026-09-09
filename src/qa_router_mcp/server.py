@@ -13,7 +13,7 @@ from qa_router_mcp.contracts import (
     QaTaskOutcomeReceipt,
     QaTaskType,
 )
-from qa_router_mcp.events import JsonEventSink
+from qa_router_mcp.events import JsonEventSink, read_metrics_lines
 from qa_router_mcp.report import summarize_events
 from qa_router_mcp.service import RouterService
 
@@ -63,7 +63,11 @@ def build_server(service: RouterService) -> FastMCP:
         )
         if examples:
             content += f"\nEXAMPLES:\n{examples}"
-        return await service.draft(DraftKind.TEST_CASES, content)
+        return await service.draft(
+            DraftKind.TEST_CASES,
+            content,
+            expected_coverage_ids=tuple(coverage_ids),
+        )
 
     @mcp.tool
     async def summarize_logs(logs: str) -> DraftEnvelope:
@@ -88,7 +92,12 @@ def build_server(service: RouterService) -> FastMCP:
         content = f"TARGET_LANGUAGE:\n{target_language}\nTEXT:\n{text}"
         if preserve_terms:
             content += f"\nPRESERVE_TERMS:\n{preserve_terms}"
-        return await service.draft(DraftKind.TRANSLATION, content)
+        terms = tuple(term.strip() for term in preserve_terms.splitlines() if term.strip())
+        return await service.draft(
+            DraftKind.TRANSLATION,
+            content,
+            preserve_terms=terms,
+        )
 
     @mcp.tool
     async def rewrite_text(text: str, instruction: str) -> DraftEnvelope:
@@ -176,7 +185,7 @@ def build_server(service: RouterService) -> FastMCP:
             raise ValueError("days must be positive")
         path = service.settings.metrics_path
         try:
-            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+            lines = read_metrics_lines(path)
         except OSError as exc:
             raise RuntimeError("metrics_unavailable") from exc
         return summarize_events(lines, days=days)

@@ -127,9 +127,9 @@ lms load qwen/qwen3.5-9b \
   -y
 ```
 
-The API must listen only on `127.0.0.1:1234`. JIT loading allows the model to load on the first request and unload after five minutes of inactivity.
+The API must listen only on `127.0.0.1:1234`. JIT loading allows the model to load on the first request and unload after five minutes of inactivity. The router verifies that the loaded model actually uses the configured 16,384-token context before it sends a request.
 
-### 3. Optional: start llmster at login
+### 3. Optional: start llmster and the HTTP server at login
 
 ```bash
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -137,6 +137,8 @@ cp launchd/com.qa-router.llmster.plist "$HOME/Library/LaunchAgents/"
 launchctl bootstrap "gui/$(id -u)" \
   "$HOME/Library/LaunchAgents/com.qa-router.llmster.plist"
 ```
+
+The launchd job starts both LM Studio services, checks `127.0.0.1:1234/v1/models`, and restarts the job if the HTTP server stops responding.
 
 ### 4. Connect your AI client
 
@@ -149,22 +151,22 @@ Find the clone's absolute path with `pwd`, then follow the client-specific setup
 
 ## Runtime configuration
 
-The launcher uses safe defaults and accepts these environment variables:
+The launcher uses safe defaults. `QA_ROUTER_MODEL`, `QA_ROUTER_DATA_DIR`, and the two metrics limits are overrideable; the model context, loopback endpoint, timeout, TTL, reserve, and metrics source stay pinned to the verified profile:
 
 | Variable | Default |
 |---|---|
 | `QA_ROUTER_MODEL` | `qwen/qwen3.5-9b` |
-| `QA_ROUTER_CONTEXT` | `16384` |
-| `QA_ROUTER_MAX_OUTPUT` | `3072` |
-| `QA_ROUTER_LMSTUDIO_URL` | `http://127.0.0.1:1234` |
-| `QA_ROUTER_TIMEOUT` | `90` |
-| `QA_ROUTER_TTL_SECONDS` | `300` |
-| `QA_ROUTER_CONTEXT_RESERVE` | `512` |
+| `QA_ROUTER_CONTEXT` | `16384` (pinned) |
+| `QA_ROUTER_MAX_OUTPUT` | `3072` (pinned) |
+| `QA_ROUTER_LMSTUDIO_URL` | `http://127.0.0.1:1234` (pinned) |
+| `QA_ROUTER_TIMEOUT` | `90` (pinned) |
+| `QA_ROUTER_TTL_SECONDS` | `300` (pinned) |
+| `QA_ROUTER_CONTEXT_RESERVE` | `512` (pinned) |
 | `QA_ROUTER_DATA_DIR` | `$HOME/.qa-router` |
 | `QA_ROUTER_METRICS_RETENTION_DAYS` | `30` |
 | `QA_ROUTER_METRICS_MAX_EVENTS` | `10000` |
 
-The model, context, loopback endpoint, and single-generation parallelism are pinned to the verified profile.
+The model, context, loopback endpoint, and single-generation parallelism are pinned to the verified profile. The launcher only exposes safe model, data-directory, retention, and event-count overrides.
 
 ## Validation and fallback
 
@@ -172,16 +174,16 @@ The model, context, loopback endpoint, and single-generation parallelism are pin
 - Invalid JSON receives at most one schema-repair attempt.
 - Incomplete QA drafts receive at most one semantic-repair attempt.
 - Test-case output must match the requested coverage-map length, required fields, and exact one-to-one set of stable coverage IDs.
-- Automation skeletons are rejected if they contain explicit external writes.
+- Automation skeletons are rejected if they contain explicit external writes or parsed Python file, process, or network mutations.
 - Policy, context-budget, tokenizer, transport, truncation, schema, and validation failures return control to the host agent.
 
 ## Metrics
 
 Anonymous operational events are stored in `$HOME/.qa-router/metrics.jsonl`. Prompt text, generated drafts, issue keys, code, logs, and paths are not recorded. The file retains the latest 30 days and at most 10,000 events by default.
 
-The router records model loading, tokenization, generation, validation, repair, and total latency separately. For LM Studio, `cold_start_likely` is based on the loaded-model list immediately before acquisition; `model_load_ms` measures that cold acquisition. Alternate test backends fall back to a process-local idle-time heuristic.
+The router records model loading, tokenization, generation, validation, repair, and total latency separately. For LM Studio, `cold_start_likely` is based on the loaded-model list immediately before acquisition; `model_load_ms` measures that cold acquisition. Alternate test backends fall back to a process-local idle-time heuristic. Each generation event also declares whether token usage and the executed phase timings were actually measured (`token_usage_available`, `phase_latency_available`); reports never infer completeness from zero-filled fields on refusals or failed calls. A zero `repair_ms` on a complete event means that no repair was needed.
 
-Each tool has an automatic `active`, `canary`, or `paused` quality state based on its latest reviewed drafts. Every tool in a new profile requests feedback for its first 10 reviewed drafts, including routes that start active. After that, a deterministic 10% shadow sample asks the host agent to create an independent baseline; QA Router never triggers a hidden cloud call. Qwen token usage is recorded with generation events; host instructions also record one content-free QA task outcome so Qwen use, edits, source calls, CodeGraph calls, findings, and repeated reads can be evaluated after enough real work. Deep-analysis outcomes use model-neutral `deep_*` fields so Sol, Astra, or another client-owned model can be compared. When measurable, QA task outcomes include aggregate CodeGraph and source-response token counters; CodeGraph savings remain an explicitly labelled estimate, not a counterfactual fact.
+Each tool has an automatic `active`, `canary`, or `paused` quality state based on its latest reviewed drafts. Every tool in a new profile requests feedback for its first 10 reviewed drafts, including routes that start active. After that, a deterministic 10% shadow sample asks the host agent to create an independent baseline; QA Router never triggers a hidden cloud call. Qwen token usage is recorded with generation events when the provider reports it; host instructions also record one content-free QA task outcome so Qwen use, edits, source calls, CodeGraph calls, findings, and repeated reads can be evaluated after enough real work. Deep-analysis outcomes use model-neutral `deep_*` fields so Sol, Astra, or another client-owned model can be compared. When measurable, QA task outcomes include aggregate CodeGraph and source-response token counters; CodeGraph savings remain an explicitly labelled estimate, not a counterfactual fact.
 
 Generate a seven-day report:
 
@@ -190,6 +192,8 @@ uv run qa-router-report
 ```
 
 Choose another positive window with `--days`, for example `uv run qa-router-report --days 30`.
+
+The same report is available through the MCP tool `get_metrics_report(days=7)`. It returns only aggregate counters, latency percentiles, quality-gate state, canary feedback, QA-task metrics, and `data_quality` completeness rates for token and phase measurements; it never returns prompt or draft content. A completeness rate counts only events with the corresponding explicit availability flag.
 
 Run the opt-in 28-case live regression benchmark:
 

@@ -12,12 +12,35 @@ class PolicyError(ValueError):
 
 
 SECRET = re.compile(
-    r"(?i)(authorization\s*:\s*bearer|password|api[_-]?key|access[_-]?token|cookie)"
-    r"\s*[:=]?\s*\S+"
+    r"(?ix)(?:"
+    r"authorization[\"']?\s*[:=]\s*[\"']?bearer\s+[\"']?\S+|"
+    r"\b(?:password|api[_\-\s]?key|access[_\-\s]?token|cookie|client[_\-\s]?secret|"
+    r"refresh[_\-\s]?token|private[_\-\s]?key|secret[_\-\s]?key|session[_\-\s]?token|"
+    r"id[_\-\s]?token|token|jwt)\b[\"']?\s*[:=]\s*(?:bearer\s+)?[\"']?\S+|"
+    r"-----BEGIN(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY-----"
+    r")"
 )
 DECISION = re.compile(
-    r"(?i)\b(decide|determine|choose|assess)\b.{0,32}"
-    r"\b(severity|priority|release readiness|merge readiness|root cause)\b"
+    r"(?ix)(?:"
+    r"\b(?:decide|determine|choose|assess|identify|find|explain|analyze|give|tell|name|"
+    r"state|show|describe|what\s+is)\b"
+    r".{0,64}\b(?:severity|priority|release\s+readiness|merge\s+readiness|root\s+cause)\b|"
+    r"\b(?:severity|priority|release\s+readiness|merge\s+readiness|root\s+cause)\b"
+    r".{0,64}\b(?:decide|determine|choose|assess|identify|find|explain|analyze|give|tell|"
+    r"name|state|show|describe)\b|"
+    r"\b(?:why|почему)\b.{0,64}\b(?:fail\w*|error\w*|issue\w*|broken|wrong|timeout\w*|"
+    r"причин\w*|ошиб\w*|сработ\w*|упал\w*)\b|"
+    r"\b(?:определи|определить|найди|найти|укажи|указать|оцени|оценить|"
+    r"выясни|выяснить|проанализируй|проанализировать|назови|назвать|сообщи|сообщить|"
+    r"покажи|показать|объясни|объяснить)\b.{0,64}"
+    r"\b(?:серьезност\w*|приоритет\w*|готовност\w*\s+к\s+(?:релизу|слиянию)|"
+    r"корнев\w*\s+причин\w*|первопричин\w*)\b|"
+    r"\b(?:серьезност\w*|приоритет\w*|готовност\w*\s+к\s+(?:релизу|слиянию)|"
+    r"корнев\w*\s+причин\w*|первопричин\w*)\b.{0,64}"
+    r"\b(?:определи|определить|найди|найти|укажи|указать|оцени|оценить|"
+    r"выясни|выяснить|проанализируй|проанализировать|назови|назвать|сообщи|сообщить|"
+    r"покажи|показать|объясни|объяснить)\b"
+    r")"
 )
 SENSITIVE_FIELD = re.compile(
     r"(?ix)(?<!\w)[\"']?"
@@ -33,13 +56,20 @@ UUID = re.compile(
 SAFE_PLACEHOLDERS = {"", "null", "none", "nil", "redacted", "masked"}
 REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"https?://[^\s]+"), "[URL]"),
-    (re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b"), "[ISSUE]"),
+    (re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b", re.IGNORECASE), "[ISSUE]"),
     (re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b"), "[EMAIL]"),
     (
         re.compile(r"(?<![0-9a-f])\b[0-9a-f]{7,40}\b(?![0-9a-f])", re.IGNORECASE),
         "[COMMIT]",
     ),
-    (re.compile(r"/(?:Users|home|var|opt)/[^\s]+"), "[PATH]"),
+    (
+        re.compile(
+            r"(?<![A-Za-z0-9])/(?:Users|home|var|opt|tmp|private|Applications|"
+            r"Volumes|Library|System|etc|usr|bin|sbin|dev)/[^\s]+",
+            re.IGNORECASE,
+        ),
+        "[PATH]",
+    ),
     (
         re.compile(r"\b(?:feature|bugfix|hotfix|release)/[\w.-]+\b", re.IGNORECASE),
         "[BRANCH]",

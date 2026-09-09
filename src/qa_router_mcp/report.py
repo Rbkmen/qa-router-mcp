@@ -10,6 +10,7 @@ from qa_router_mcp.events import (
     CANARY_TARGET,
     CANARY_TOOL_TARGETS,
     QA_TASK_TOKEN_COUNTERS,
+    read_metrics_lines,
     valid_qa_task_metrics,
     validated_canary_feedback,
 )
@@ -35,6 +36,8 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
     qa_task_totals = Counter()
     deep_models: Counter[str] = Counter()
     deep_reasoning: Counter[str] = Counter()
+    complete_token_usage_events = 0
+    complete_phase_latency_events = 0
 
     events: list[dict[str, object]] = []
     for line in lines:
@@ -76,7 +79,9 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
                 deep_models[str(event.get("deep_model", "unknown"))] += 1
                 deep_reasoning[str(event.get("deep_reasoning", "unknown"))] += 1
             qa_task_totals["codegraph_tasks"] += event.get("codegraph_calls", 0) > 0
-            qa_task_totals["complete_token_measurement_tasks"] += QA_TASK_TOKEN_COUNTERS <= event.keys()
+            qa_task_totals["complete_token_measurement_tasks"] += (
+                QA_TASK_TOKEN_COUNTERS <= event.keys()
+            )
             for field in (
                 "codegraph_calls",
                 "source_mcp_calls",
@@ -96,6 +101,10 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
                 if type(value) is int and value >= 0:
                     qa_task_totals[field] += value
             continue
+        if event.get("token_usage_available") is True:
+            complete_token_usage_events += 1
+        if event.get("phase_latency_available") is True:
+            complete_phase_latency_events += 1
         tool = str(event.get("tool", "unknown"))
         outcome = str(event.get("outcome", "unknown"))
         has_metadata = event.get("schema_version") in {2, 4, 7}
@@ -122,7 +131,7 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
         duration = event.get("duration_ms")
         if isinstance(duration, (int, float)) and duration >= 0:
             durations.append(float(duration))
-        if event.get("schema_version") == 7:
+        if event.get("schema_version") == 7 and event.get("phase_latency_available") is True:
             for phase in ("model_load", "tokenization", "generation", "validation", "repair"):
                 value = event.get(f"{phase}_ms")
                 if isinstance(value, (int, float)) and value >= 0:
@@ -160,6 +169,17 @@ def summarize_events(lines: Iterable[str], days: int = 7) -> dict[str, object]:
             "rate": round(shadow_requested / shadow_eligible, 3) if shadow_eligible else None,
         },
         "quality_statuses": dict(sorted(quality_statuses.items())),
+        "data_quality": {
+            "generation_events": totals["events"],
+            "complete_token_usage_events": complete_token_usage_events,
+            "complete_phase_latency_events": complete_phase_latency_events,
+            "complete_token_usage_rate": _coverage_rate(
+                complete_token_usage_events, totals["events"]
+            ),
+            "complete_phase_latency_rate": _coverage_rate(
+                complete_phase_latency_events, totals["events"]
+            ),
+        },
         "by_tool": {
             tool: dict(sorted(tool_outcomes.items()))
             for tool, tool_outcomes in sorted(tools.items())
@@ -282,6 +302,10 @@ def _savings_percent(avoided_tokens: int, source_tokens: int) -> float | None:
     return round(avoided_tokens / total * 100, 1) if total else None
 
 
+def _coverage_rate(complete: int, total: int) -> float | None:
+    return round(complete / total, 3) if total else None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize QA Router metrics")
     parser.add_argument("--days", type=int, default=7, help="report window in days")
@@ -290,5 +314,5 @@ def main() -> None:
         parser.error("--days must be positive")
     data_dir = Path(environ.get("QA_ROUTER_DATA_DIR", str(Path.home() / ".qa-router")))
     path = data_dir / "metrics.jsonl"
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    lines = read_metrics_lines(path)
     print(json.dumps(summarize_events(lines, days=args.days), ensure_ascii=False, indent=2))

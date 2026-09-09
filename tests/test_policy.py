@@ -43,7 +43,20 @@ def test_branch_and_repository_paths_are_replaced():
 
 @pytest.mark.parametrize(
     "raw",
-    ["Authorization: Bearer secret-value", "password=hunter2", "api_key: abc123"],
+    [
+        "Authorization: Bearer secret-value",
+        '{"Authorization":"Bearer secret-value"}',
+        "password=hunter2",
+        "api_key: abc123",
+        "client_secret=synthetic-value",
+        "client secret: synthetic-value",
+        "refresh_token=synthetic-value",
+        "private_key=synthetic-value",
+        '{"client_secret":"synthetic-value"}',
+        '{"refresh_token":"synthetic-value"}',
+        '{"private_key":"synthetic-value"}',
+        "-----BEGIN PRIVATE KEY-----",
+    ],
 )
 def test_secret_like_input_is_rejected(raw):
     with pytest.raises(PolicyError, match="secret_detected"):
@@ -55,9 +68,33 @@ def test_oversized_input_is_rejected():
         sanitize_transient("x" * 11, 10)
 
 
+def test_lowercase_issue_keys_and_common_absolute_paths_are_replaced():
+    raw = "abc-123 /tmp/private.txt /Applications/QA/notes.txt /private/var/tmp/log"
+
+    assert sanitize_transient(raw, 1_000) == "[ISSUE] [PATH] [PATH] [PATH]"
+
+
 def test_decision_request_is_refused():
     with pytest.raises(PolicyError, match="codex_only_decision"):
         assert_allowed_request(DraftKind.TEST_CASES, "Determine release readiness")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Определи корневую причину ошибки",
+        "What is the root cause of this failure?",
+        "Назови корневую причину ошибки",
+        "Give me the root cause of this failure",
+        "Why did this fail?",
+        "Почему это не сработало?",
+        "Оцени приоритет дефекта",
+        "Assess severity for this defect",
+    ],
+)
+def test_multilingual_decision_requests_are_refused(raw):
+    with pytest.raises(PolicyError, match="codex_only_decision"):
+        assert_allowed_request(DraftKind.LOG_SUMMARY, raw)
 
 
 @pytest.mark.parametrize(

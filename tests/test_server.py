@@ -20,6 +20,8 @@ class DraftFake:
 
     async def generate(self, prompt, *, max_output_tokens=None, allow_schema_repair=True):
         self.prompts.append(prompt)
+        if "PRESERVE_TERMS" in prompt:
+            return DraftEnvelope(draft="Перевод checkout", unverified=["Review locally"])
         return DraftEnvelope(
             draft=(
                 "Coverage ID: COV-GUEST-HAPPY\nTitle: Case\n"

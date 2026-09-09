@@ -82,6 +82,17 @@ def test_source_bound_log_summary_may_have_no_unverified_claims():
     )
 
 
+def test_translation_requires_every_preserved_term():
+    result = DraftEnvelope(draft="Кнопка оформления отключена.", unverified=[])
+
+    assert validate_generated_draft(
+        DraftKind.TRANSLATION,
+        "TARGET_LANGUAGE: Russian\nTEXT: The checkout button is disabled.",
+        result,
+        preserve_terms=("checkout",),
+    ) == ["translation_missing_preserve_term"]
+
+
 def test_numbered_test_case_heading_counts_as_title():
     result = DraftEnvelope(
         draft=(
@@ -227,6 +238,24 @@ def test_automation_skeleton_cannot_contain_git_commit():
         "kubectl apply -f deployment.yaml",
         "rm -rf /tmp/generated",
         "Path('result').write_text(content)",
+        "Path('result').unlink()",
+        "Path('result').touch()",
+        "Path(path)\\\n.touch()",
+        "path.touch()",
+        "Path(path).open(mode)",
+        "pathlib.Path(path).open(mode)",
+        "path.open(mode)",
+        "shutil.rmtree('generated')",
+        "os.remove('result.txt')",
+        "os.system(command)",
+        "os.popen(command)",
+        "os.execv(path, args)",
+        "subprocess.run(['git', 'push', 'origin', 'main'])",
+        "client.post(url, json=payload)",
+        "client.request(url, method='DELETE')",
+        "requests.request(method_name, url)",
+        "httpx.Client().post(url)",
+        "requests.Session().post(url)",
         "open('result.txt', 'w')",
         "fetch(url, {method: 'POST'})",
         "requests.patch(url, json=payload)",
@@ -244,12 +273,72 @@ def test_automation_skeleton_rejects_common_external_and_file_writes(draft):
     ) == ["automation_external_write"]
 
 
+def test_automation_skeleton_allows_non_mutating_string_methods():
+    result = DraftEnvelope(draft="normalized = name.replace('-', '_')", unverified=[])
+
+    assert (
+        validate_generated_draft(
+            DraftKind.AUTOMATION_SKELETON,
+            "Draft a skeleton",
+            result,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Path('result').open('r')",
+        "file.open('r')",
+        "unittest.mock.patch('target')",
+        "items.remove(value)",
+    ],
+)
+def test_automation_skeleton_allows_safe_python_calls(draft):
+    result = DraftEnvelope(draft=draft, unverified=[])
+
+    assert (
+        validate_generated_draft(
+            DraftKind.AUTOMATION_SKELETON,
+            "Draft a skeleton",
+            result,
+        )
+        == []
+    )
+
+
+def test_coverage_ids_can_be_supplied_separately_from_examples():
+    result = DraftEnvelope(
+        draft=(
+            "Coverage ID: COV-REAL\nTitle: Case\nPreconditions: Ready\n"
+            "Steps: 1. Act\nExpected Result: Success"
+        ),
+        unverified=[],
+    )
+
+    assert (
+        validate_generated_draft(
+            DraftKind.TEST_CASES,
+            "Draft one test case\nEXAMPLES:\nCoverage ID: COV-EXAMPLE",
+            result,
+            expected_coverage_ids=("COV-REAL",),
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("value", [None, 12, {"nested": "value"}, [None]])
 def test_nested_test_case_invalid_values_are_not_normalized(value):
     import json
 
-    draft = json.dumps({
-        "Coverage ID": "COV-A", "Title": "Case", "Preconditions": value,
-        "Steps": ["Act"], "Expected Result": "Success",
-    })
+    draft = json.dumps(
+        {
+            "Coverage ID": "COV-A",
+            "Title": "Case",
+            "Preconditions": value,
+            "Steps": ["Act"],
+            "Expected Result": "Success",
+        }
+    )
     assert normalize_test_case_draft(draft) == draft

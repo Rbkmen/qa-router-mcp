@@ -1,10 +1,10 @@
 import json
 import sys
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from fcntl import LOCK_EX, LOCK_UN, flock
+from fcntl import LOCK_EX, LOCK_SH, LOCK_UN, flock
 from pathlib import Path
 from re import fullmatch
 from typing import IO, Protocol
@@ -76,6 +76,7 @@ class EventSink(Protocol):
         validation_ms: float = 0,
         repair_ms: float = 0,
         cold_start_likely: bool = False,
+        phase_latency_available: bool = False,
     ) -> str | None: ...
 
     def record_feedback(
@@ -125,6 +126,7 @@ class JsonEventSink:
         validation_ms: float = 0,
         repair_ms: float = 0,
         cold_start_likely: bool = False,
+        phase_latency_available: bool = False,
     ) -> str | None:
         usage = stats or GenerationStats()
         event: dict[str, object] = {
@@ -144,6 +146,7 @@ class JsonEventSink:
             "prompt_tokens": usage.prompt_tokens,
             "output_tokens": usage.output_tokens,
             "requests": usage.requests,
+            "token_usage_available": usage.usage_available is True,
             "truncated": usage.truncated,
             "validation_repair": validation_repair,
             "quality_status": quality_status,
@@ -154,6 +157,7 @@ class JsonEventSink:
             "validation_ms": round(validation_ms, 2),
             "repair_ms": round(repair_ms, 2),
             "cold_start_likely": cold_start_likely,
+            "phase_latency_available": phase_latency_available,
         }
         if draft_id is None:
             self._write(event)
@@ -185,8 +189,7 @@ class JsonEventSink:
                 progress = Counter(str(event["tool"]) for event in feedback)
                 shadow_sample = draft.get("shadow_evaluation_required") is True
                 if not shadow_sample and (
-                    tool not in CANARY_TOOL_TARGETS
-                    or progress[tool] >= CANARY_TOOL_TARGETS[tool]
+                    tool not in CANARY_TOOL_TARGETS or progress[tool] >= CANARY_TOOL_TARGETS[tool]
                 ):
                     return self._receipt("complete", len(feedback))
                 event = {
@@ -218,13 +221,15 @@ class JsonEventSink:
         return QaTaskOutcomeReceipt(status="recorded" if self._write(payload) else "unavailable")
 
     def quality_gate(self, tool: str, profile_version: str) -> QualityGate:
-        if self.path is None or not self.path.exists():
+        if self.path is None:
             return assess_quality(tool, [])
         try:
-            with self.path.open(encoding="utf-8") as metrics:
-                events = _parse_events(metrics)
+            lines = read_metrics_lines(self.path)
         except OSError:
-            return assess_quality(tool, [])
+            return QualityGate("paused", 0, None, None)
+        events = _parse_events_strict(lines)
+        if events is None:
+            return QualityGate("paused", 0, None, None)
         return assess_quality(tool, validated_canary_feedback(events, profile_version))
 
     @staticmethod
@@ -297,8 +302,7 @@ class JsonEventSink:
                 )
                 shadow_sample = event.get("shadow_evaluation_required") is True
                 if not shadow_sample and (
-                    tool not in CANARY_TOOL_TARGETS
-                    or reviewed[tool] >= CANARY_TOOL_TARGETS[tool]
+                    tool not in CANARY_TOOL_TARGETS or reviewed[tool] >= CANARY_TOOL_TARGETS[tool]
                 ):
                     self._append_locked(metrics, events, event)
                     print(_serialize(event), file=sys.stderr, flush=True)
@@ -309,6 +313,19 @@ class JsonEventSink:
                 return draft_id
         except OSError:
             return None
+
+
+def read_metrics_lines(path: Path) -> list[str]:
+    """Read a stable metrics snapshot while writers hold an exclusive lock."""
+    try:
+        with path.open(encoding="utf-8") as metrics:
+            flock(metrics.fileno(), LOCK_SH)
+            try:
+                return metrics.read().splitlines()
+            finally:
+                flock(metrics.fileno(), LOCK_UN)
+    except FileNotFoundError:
+        return []
 
 
 def validated_canary_feedback(
@@ -368,7 +385,7 @@ def _issued_canary_drafts(
     return issued
 
 
-def _parse_events(metrics: IO[str]) -> list[dict[str, object]]:
+def _parse_events(metrics: Iterable[str]) -> list[dict[str, object]]:
     events: list[dict[str, object]] = []
     for line in metrics:
         try:
@@ -377,6 +394,19 @@ def _parse_events(metrics: IO[str]) -> list[dict[str, object]]:
             continue
         if isinstance(event, dict):
             events.append(event)
+    return events
+
+
+def _parse_events_strict(metrics: Iterable[str]) -> list[dict[str, object]] | None:
+    events: list[dict[str, object]] = []
+    for line in metrics:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(event, dict):
+            return None
+        events.append(event)
     return events
 
 
@@ -420,9 +450,8 @@ def valid_qa_task_metrics(event: dict[str, object]) -> bool:
     if "deep_reasoning" in event and (
         not deep_used
         or not isinstance(event["deep_reasoning"], str)
-        or event["deep_reasoning"] not in {
-            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
-        }
+        or event["deep_reasoning"]
+        not in {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
     ):
         return False
     if any(

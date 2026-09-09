@@ -134,6 +134,7 @@ class RouterService:
         validation_ms: float = 0,
         repair_ms: float = 0,
         cold_start_likely: bool = False,
+        phase_latency_available: bool = False,
     ) -> DraftEnvelope:
         gate = quality_gate or self.events.quality_gate(kind.value, self.settings.profile_version)
         sample_id = uuid4().hex
@@ -142,7 +143,8 @@ class RouterService:
         needs_profile_feedback = gate.reviews < MIN_REVIEWS
         candidate_id = (
             sample_id
-            if interactive_ok and (needs_profile_feedback or gate.status == "canary" or shadow_required)
+            if interactive_ok
+            and (needs_profile_feedback or gate.status == "canary" or shadow_required)
             else None
         )
         result.quality_status = gate.status
@@ -177,6 +179,7 @@ class RouterService:
             validation_ms=validation_ms,
             repair_ms=repair_ms,
             cold_start_likely=cold_start_likely,
+            phase_latency_available=phase_latency_available,
         )
         result.canary_feedback_required = result.draft_id is not None
         return result
@@ -186,6 +189,9 @@ class RouterService:
         kind: DraftKind,
         content: str,
         pattern: str | None = None,
+        *,
+        expected_coverage_ids: tuple[str, ...] | None = None,
+        preserve_terms: tuple[str, ...] = (),
     ) -> DraftEnvelope:
         started = monotonic()
         tokenization_ms = 0.0
@@ -193,6 +199,7 @@ class RouterService:
         generation_ms = 0.0
         validation_ms = 0.0
         repair_ms = 0.0
+        phase_latency_available = False
         validation_repair_attempted = False
         estimated_prompt_tokens = 0
         recorded_stats = GenerationStats()
@@ -218,7 +225,15 @@ class RouterService:
                 content, input_limit, preserve_coverage_ids=kind == DraftKind.TEST_CASES
             )
             safe_pattern = sanitize_transient(pattern, input_limit) if pattern else None
-            prompt = build_prompt(kind, safe_content, safe_pattern)
+            safe_preserve_terms = tuple(
+                sanitize_transient(term, input_limit) for term in preserve_terms if term.strip()
+            )
+            prompt = build_prompt(
+                kind,
+                safe_content,
+                safe_pattern,
+                expected_coverage_ids=expected_coverage_ids,
+            )
             output_limit = self.settings.output_limit(kind, packet)
             phase_started = monotonic()
             token_count = await self.drafting.count_tokens(prompt)
@@ -246,8 +261,15 @@ class RouterService:
             generation_ms = (monotonic() - phase_started) * 1_000
             self._last_generation_finished = monotonic()
             phase_started = monotonic()
-            issues = validate_generated_draft(kind, packet, result)
+            issues = validate_generated_draft(
+                kind,
+                packet,
+                result,
+                expected_coverage_ids=expected_coverage_ids,
+                preserve_terms=safe_preserve_terms,
+            )
             validation_ms += (monotonic() - phase_started) * 1_000
+            phase_latency_available = True
             if issues == ["truncated"]:
                 incomplete = DraftEnvelope(status="fallback", reason="local_model_truncated")
                 return self._record(
@@ -263,10 +285,12 @@ class RouterService:
                     generation_ms=generation_ms,
                     validation_ms=validation_ms,
                     cold_start_likely=cold_start_likely,
+                    phase_latency_available=phase_latency_available,
                 )
             if issues:
                 initial_stats = result.generation_stats
                 validation_repair_attempted = True
+                phase_latency_available = False
                 try:
                     phase_started = monotonic()
                     repair_prompt = f"{prompt}\n{repair_instruction(issues)}"
@@ -278,9 +302,7 @@ class RouterService:
                     else:
                         repair_tokens = repair_token_count
                     if (
-                        repair_tokens
-                        + output_limit
-                        + self.settings.context_reserve_tokens
+                        repair_tokens + output_limit + self.settings.context_reserve_tokens
                         > self.settings.context
                     ):
                         raise PolicyError("token_budget_exceeded")
@@ -300,8 +322,15 @@ class RouterService:
                 recorded_stats = combined_stats
                 repaired.set_generation_stats(combined_stats)
                 phase_started = monotonic()
-                remaining = validate_generated_draft(kind, packet, repaired)
+                remaining = validate_generated_draft(
+                    kind,
+                    packet,
+                    repaired,
+                    expected_coverage_ids=expected_coverage_ids,
+                    preserve_terms=safe_preserve_terms,
+                )
                 validation_ms += (monotonic() - phase_started) * 1_000
+                phase_latency_available = True
                 if remaining:
                     incomplete = DraftEnvelope(
                         status="fallback",
@@ -322,6 +351,7 @@ class RouterService:
                         validation_ms=validation_ms,
                         repair_ms=repair_ms,
                         cold_start_likely=cold_start_likely,
+                        phase_latency_available=phase_latency_available,
                     )
                 return self._record(
                     kind,
@@ -338,6 +368,7 @@ class RouterService:
                     validation_ms=validation_ms,
                     repair_ms=repair_ms,
                     cold_start_likely=cold_start_likely,
+                    phase_latency_available=phase_latency_available,
                 )
             return self._record(
                 kind,
@@ -353,6 +384,7 @@ class RouterService:
                 generation_ms=generation_ms,
                 validation_ms=validation_ms,
                 cold_start_likely=cold_start_likely,
+                phase_latency_available=phase_latency_available,
             )
         except PolicyError as exc:
             result = DraftEnvelope(status="refused", reason=exc.code)

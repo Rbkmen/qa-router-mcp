@@ -136,7 +136,9 @@ class Settings:
             ),
             metrics_source=environ.get("QA_ROUTER_METRICS_SOURCE", defaults.metrics_source),
             metrics_retention_days=int(
-                environ.get("QA_ROUTER_METRICS_RETENTION_DAYS", str(defaults.metrics_retention_days))
+                environ.get(
+                    "QA_ROUTER_METRICS_RETENTION_DAYS", str(defaults.metrics_retention_days)
+                )
             ),
             metrics_max_events=int(
                 environ.get("QA_ROUTER_METRICS_MAX_EVENTS", str(defaults.metrics_max_events))

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 import qa_router_mcp.backends as backends_module
-from qa_router_mcp.backends import LMStudioDraftBackend
+from qa_router_mcp.backends import BackendError, LMStudioDraftBackend
 from qa_router_mcp.config import Settings
 from qa_router_mcp.contracts import TokenCount
 
@@ -22,6 +22,9 @@ async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
             return "chat"
 
     class FakeModel:
+        def get_context_length(self):
+            return 16_384
+
         def apply_prompt_template(self, chat):
             calls["chat"] = chat
             return "formatted prompt"
@@ -36,8 +39,8 @@ async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
         def list_loaded(self):
             return []
 
-        def model(self, model, *, ttl):
-            calls.update(model=model, ttl=ttl)
+        def model(self, model, *, ttl, config):
+            calls.update(model=model, ttl=ttl, config=config)
             return FakeModel()
 
     class FakeClient:
@@ -59,11 +62,80 @@ async def test_lmstudio_counts_formatted_prompt_tokens(monkeypatch):
     assert calls == {
         "model": "qwen/qwen3.5-9b",
         "ttl": 300,
+        "config": {"contextLength": 16_384},
         "api_host": "127.0.0.1:1234",
-        "history": {"messages": [{"role": "user", "content": "source prompt"}]},
+        "history": {
+            "messages": [
+                {"role": "system", "content": backends_module.SYSTEM_PROMPT},
+                {"role": "user", "content": "source prompt"},
+            ]
+        },
         "chat": "chat",
         "text": "formatted prompt",
     }
+    await backend.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_lmstudio_rejects_model_with_unverified_context_length(monkeypatch):
+    class FakeModel:
+        def get_context_length(self):
+            return 8_192
+
+        def apply_prompt_template(self, chat):
+            return "formatted prompt"
+
+        def tokenize(self, text):
+            return [1]
+
+    class FakeLlmNamespace:
+        def list_loaded(self):
+            return []
+
+        def model(self, model, *, ttl, config):
+            assert config == {"contextLength": 16_384}
+            return FakeModel()
+
+    class FakeClient:
+        llm = FakeLlmNamespace()
+
+    monkeypatch.setattr(backends_module, "_lmstudio_client", lambda _: FakeClient())
+
+    backend = LMStudioDraftBackend(Settings())
+    with pytest.raises(BackendError, match="local_model_context_mismatch"):
+        await backend.count_tokens("prompt")
+    await backend.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_lmstudio_accepts_model_with_larger_context_length(monkeypatch):
+    class FakeModel:
+        def get_context_length(self):
+            return 92_672
+
+        def apply_prompt_template(self, chat):
+            return "formatted prompt"
+
+        def tokenize(self, text):
+            return [1, 2]
+
+    class FakeLlmNamespace:
+        def list_loaded(self):
+            return []
+
+        def model(self, model, *, ttl, config):
+            assert config == {"contextLength": 16_384}
+            return FakeModel()
+
+    class FakeClient:
+        llm = FakeLlmNamespace()
+
+    monkeypatch.setattr(backends_module, "_lmstudio_client", lambda _: FakeClient())
+
+    backend = LMStudioDraftBackend(Settings())
+    token_count = await backend.count_tokens("prompt")
+
+    assert token_count.tokens == 2
     await backend.client.aclose()
 
 
@@ -77,6 +149,8 @@ async def test_lmstudio_uses_direct_structured_request():
         assert body["temperature"] == 0
         assert body["stream"] is False
         assert body["ttl"] == 300
+        assert body["messages"][0]["role"] == "system"
+        assert body["messages"][1] == {"role": "user", "content": "prompt"}
         response_format = body["response_format"]
         assert response_format["type"] == "json_schema"
         assert response_format["json_schema"]["strict"] is True
@@ -107,7 +181,34 @@ async def test_lmstudio_uses_direct_structured_request():
     assert result.generation_stats.prompt_tokens == 21
     assert result.generation_stats.output_tokens == 9
     assert result.generation_stats.requests == 1
+    assert result.generation_stats.usage_available is True
     assert result.generation_stats.truncated is False
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_lmstudio_marks_usage_unavailable_when_response_omits_usage():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"content": '{"draft":"A","unverified":[]}'},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = await LMStudioDraftBackend(Settings(), client).generate(
+        "prompt",
+        max_output_tokens=512,
+    )
+
+    assert result.generation_stats.usage_available is False
     await client.aclose()
 
 

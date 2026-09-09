@@ -57,7 +57,9 @@ def test_eval_set_contains_required_policy_and_fallback_categories():
         kind.value: 4 for kind in DraftKind
     }
     assert all("semantic" in case for case in cases if case["expected"] == "ok")
-    test_case_inputs = [case["input"] for case in cases if case["kind"] == "test_cases" and case["expected"] == "ok"]
+    test_case_inputs = [
+        case["input"] for case in cases if case["kind"] == "test_cases" and case["expected"] == "ok"
+    ]
     assert all("Coverage ID:" in value for value in test_case_inputs)
 
 

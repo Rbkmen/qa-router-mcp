@@ -1,3 +1,4 @@
+import ast
 import json
 import re
 
@@ -65,6 +66,13 @@ EXTERNAL_WRITE = re.compile(
     r"\bcurl\b[^\n]*(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b|"
     r"\bfetch\s*\([^\n]*(?:method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)['\"])[^\n]*\)|"
     r"\b(?:requests|httpx|axios)\.(?:post|put|patch|delete)\s*\(|"
+    r"\b(?:requests|httpx|axios|client|session)\.request\s*\([^\n]*(?:method\s*=\s*['\"]"
+    r"(?:POST|PUT|PATCH|DELETE)['\"]|['\"](?:POST|PUT|PATCH|DELETE)['\"])|"
+    r"\b(?:os|shutil)\.(?:remove|unlink|rmdir|rename|replace|makedirs|mkdir|system|"
+    r"popen|exec[lv][a-z]*|spawn[lv][a-z]*|rmtree|copy|copy2|copytree|move)\s*\(|"
+    r"\bPath\s*\([^\n]*\)\.(?:unlink|write_text|write_bytes|rename|replace|mkdir|touch)\s*\(|"
+    r"\bPath\s*\([^\n]*\)\.open\s*\([^\n]*(?:['\"][wax][+b]?['\"]|"
+    r"mode\s*=\s*['\"][wax][+b]?['\"])|"
     r"\b(?:rm|unlink|rmdir)\s+(?:-[^\s]+\s+)*[^\s]+|"
     r"\b(?:echo|printf|cat|sed|awk)\b[^\n]*(?:>>?|2>)\s*\S|"
     r"\btee(?:\s+-a)?\s+\S|"
@@ -81,6 +89,9 @@ def validate_generated_draft(
     kind: DraftKind,
     request_text: str,
     result: DraftEnvelope,
+    *,
+    expected_coverage_ids: tuple[str, ...] | None = None,
+    preserve_terms: tuple[str, ...] = (),
 ) -> list[str]:
     if result.status != "ok":
         return []
@@ -89,7 +100,11 @@ def validate_generated_draft(
 
     issues: list[str] = []
     if kind == DraftKind.TEST_CASES:
-        expected_ids = COVERAGE_ID.findall(request_text)
+        expected_ids = (
+            list(expected_coverage_ids)
+            if expected_coverage_ids is not None
+            else COVERAGE_ID.findall(request_text)
+        )
         if expected_ids:
             actual_ids = COVERAGE_ID.findall(result.draft)
             if len(actual_ids) != len(set(actual_ids)):
@@ -124,9 +139,14 @@ def validate_generated_draft(
             issues.extend(
                 f"test_cases_missing_{field}" for field in FIELD_PATTERNS if field != "title"
             )
+    elif kind == DraftKind.TRANSLATION:
+        if any(term not in result.draft for term in preserve_terms if term):
+            issues.append("translation_missing_preserve_term")
     elif kind == DraftKind.SHORT_EXPLANATION and len(result.draft.split()) > 120:
         issues.append("short_explanation_too_long")
-    elif kind == DraftKind.AUTOMATION_SKELETON and EXTERNAL_WRITE.search(result.draft):
+    elif kind == DraftKind.AUTOMATION_SKELETON and (
+        EXTERNAL_WRITE.search(result.draft) or _contains_python_external_write(result.draft)
+    ):
         issues.append("automation_external_write")
 
     return issues
@@ -139,13 +159,19 @@ def normalize_test_case_draft(draft: str) -> str:
     except (json.JSONDecodeError, TypeError):
         return draft
     items = [parsed] if isinstance(parsed, dict) else parsed
-    if not isinstance(items, list) or not items or not all(isinstance(item, dict) for item in items):
+    if (
+        not isinstance(items, list)
+        or not items
+        or not all(isinstance(item, dict) for item in items)
+    ):
         return draft
 
     required = ("coverage id", "title", "preconditions", "steps", "expected result")
     blocks: list[str] = []
     for item in items:
-        normalized = {str(key).strip().casefold().replace("_", " "): value for key, value in item.items()}
+        normalized = {
+            str(key).strip().casefold().replace("_", " "): value for key, value in item.items()
+        }
         if set(normalized) != set(required) or len(normalized) != len(item):
             return draft
         if any(
@@ -154,7 +180,9 @@ def normalize_test_case_draft(draft: str) -> str:
             for value in normalized.values()
         ):
             return draft
-        values = {key: _plain_text_value(normalized[key], numbered=key == "steps") for key in required}
+        values = {
+            key: _plain_text_value(normalized[key], numbered=key == "steps") for key in required
+        }
         blocks.append(
             "\n".join(
                 (
@@ -189,6 +217,187 @@ def _has_empty_field(block: str, pattern: re.Pattern[str]) -> bool:
         if not block[match.end() : end].strip():
             return True
     return False
+
+
+PYTHON_PATH_MUTATION_METHODS = {
+    "mkdir",
+    "open",
+    "rename",
+    "replace",
+    "touch",
+    "unlink",
+    "write_bytes",
+    "write_text",
+}
+PYTHON_OS_MUTATION_METHODS = {
+    "makedirs",
+    "mkdir",
+    "remove",
+    "rename",
+    "replace",
+    "rmdir",
+    "system",
+    "unlink",
+}
+PYTHON_OS_PROCESS_METHODS = {
+    "execl",
+    "execle",
+    "execlp",
+    "execlpe",
+    "execv",
+    "execve",
+    "execvp",
+    "execvpe",
+    "popen",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+}
+PYTHON_SHUTIL_MUTATION_METHODS = {
+    "copy",
+    "copy2",
+    "copytree",
+    "move",
+    "rmtree",
+}
+PYTHON_SUBPROCESS_METHODS = {
+    "Popen",
+    "call",
+    "check_call",
+    "check_output",
+    "run",
+}
+PYTHON_NETWORK_ROOTS = {"axios", "client", "httpx", "requests", "session"}
+PYTHON_NETWORK_METHODS = {"delete", "patch", "post", "put", "request"}
+
+
+PYTHON_EXTERNAL_WRITE_METHODS = (
+    PYTHON_PATH_MUTATION_METHODS
+    | PYTHON_OS_MUTATION_METHODS
+    | PYTHON_OS_PROCESS_METHODS
+    | PYTHON_SHUTIL_MUTATION_METHODS
+    | PYTHON_SUBPROCESS_METHODS
+    | PYTHON_NETWORK_METHODS
+    | {"appendFile"}
+)
+
+
+def _contains_python_external_write(draft: str) -> bool:
+    blocks = re.findall(r"```(?:python|py)?\s*\n?(.*?)```", draft, flags=re.IGNORECASE | re.DOTALL)
+    candidates = blocks or [draft]
+    for candidate in candidates:
+        try:
+            tree = ast.parse(candidate)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            path = _attribute_path(node.func)
+            if not path:
+                continue
+            method = path[-1]
+            if method not in PYTHON_EXTERNAL_WRITE_METHODS:
+                continue
+            if method == "open":
+                if _open_writes(node):
+                    return True
+                continue
+            if len(path) >= 2 and path[0] == "subprocess" and method in PYTHON_SUBPROCESS_METHODS:
+                return True
+            if len(path) >= 2 and path[0] == "os" and method in PYTHON_OS_MUTATION_METHODS:
+                return True
+            if len(path) >= 2 and path[0] == "os" and method in PYTHON_OS_PROCESS_METHODS:
+                return True
+            if len(path) >= 2 and path[0] == "shutil" and method in PYTHON_SHUTIL_MUTATION_METHODS:
+                return True
+            if method in PYTHON_PATH_MUTATION_METHODS and isinstance(node.func, ast.Attribute):
+                if method == "replace" and not _is_path_like_receiver(node.func.value):
+                    continue
+                return True
+            if method in PYTHON_NETWORK_METHODS and _is_network_call(node.func):
+                if method == "request":
+                    return _request_writes(node)
+                return True
+    return False
+
+
+def _is_path_receiver(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    return _attribute_path(node.func) in (["Path"], ["pathlib", "Path"])
+
+
+def _is_path_like_receiver(node: ast.AST) -> bool:
+    if _is_path_receiver(node):
+        return True
+    if not isinstance(node, ast.Name):
+        return False
+    return any(
+        marker in node.id.casefold() for marker in ("dest", "file", "output", "path", "target")
+    )
+
+
+def _is_network_call(node: ast.AST) -> bool:
+    path = _attribute_path(node)
+    if len(path) >= 2 and path[0] in PYTHON_NETWORK_ROOTS:
+        return True
+    if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Call):
+        return False
+    constructor = _attribute_path(node.value.func)
+    return (
+        len(constructor) >= 2
+        and constructor[0] in {"axios", "httpx", "requests"}
+        and constructor[-1] in {"AsyncClient", "Client", "Session"}
+    )
+
+
+def _open_writes(node: ast.Call) -> bool:
+    mode: ast.AST | None = None
+    path_receiver = isinstance(node.func, ast.Attribute) and _is_path_receiver(node.func.value)
+    for keyword in node.keywords:
+        if keyword.arg == "mode":
+            mode = keyword.value
+            break
+    if mode is None:
+        if (path_receiver or isinstance(node.func, ast.Attribute)) and node.args:
+            mode = node.args[0]
+        elif not path_receiver and len(node.args) > 1:
+            mode = node.args[1]
+        else:
+            return False
+    if not isinstance(mode, ast.Constant) or not isinstance(mode.value, str):
+        return True
+    return any(flag in mode.value for flag in ("w", "a", "x", "+"))
+
+
+def _request_writes(node: ast.Call) -> bool:
+    method_value: ast.AST | None = None
+    for keyword in node.keywords:
+        if keyword.arg == "method":
+            method_value = keyword.value
+            break
+    if method_value is None and node.args:
+        method_value = node.args[0]
+    if not isinstance(method_value, ast.Constant) or not isinstance(method_value.value, str):
+        return True
+    return method_value.value.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _attribute_path(node: ast.AST) -> list[str]:
+    path: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        path.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        path.append(current.id)
+    return list(reversed(path))
 
 
 def requested_case_count(text: str) -> int:
@@ -230,6 +439,7 @@ def repair_instruction(issues: list[str]) -> str:
         "test_cases_unexpected_coverage_id": "remove Coverage IDs not supplied in the input",
         "test_cases_missing_coverage_id": "include every supplied Coverage ID exactly once",
         "short_explanation_too_long": "keep the explanation at or below 120 words",
+        "translation_missing_preserve_term": "repeat every preserved term verbatim",
         "automation_external_write": "remove every external write operation",
     }
     requirements = [descriptions.get(issue, issue) for issue in issues]
